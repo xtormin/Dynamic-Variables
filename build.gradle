@@ -1,0 +1,23 @@
+plugins {
+    id 'java'
+}
+
+group = 'burp'
+version = '1.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compileOnly 'net.portswigger.burp.extensions:montoya-api:2026.7'
+}
+
+jar {
+    archiveClassifier = ''
+    manifest {
+        attributes(
+            'Extension-Class': 'burp.DynamicVariables'
+        )
+    }
+}
