@@ -1,8 +1,8 @@
 # Dynamic Variables — Burp Suite Extension
 
-> **Placeholder-based request variables and auto-extraction rules with native background token refreshing for Burp Suite.**
+> **Placeholder-based request variables for Repeater, Intruder, and Scanner with transparent auto-refreshing on session expiration (401/403) in Burp Suite.**
 
-Dynamic Variables is a Burp Suite extension that brings template variables and automatic session refreshes to your pentesting workflow. Define placeholders like `{{token}}` in Repeater requests (similar to how it is done in Postman), select text in HTTP responses to auto-generate regex extraction rules, and repeat login/refresh requests with a single click in the background when your session expires.
+Dynamic Variables is a Burp Suite extension that brings template variables and automatic session refreshes to your pentesting workflow. Define placeholders like `{{token}}` in Repeater, Intruder, or Scanner requests (similar to how it is done in Postman), select text in HTTP responses to auto-generate regex extraction rules, and repeat login/refresh requests automatically in the background when your session expires.
 
 ---
 
@@ -22,14 +22,14 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 
 | # | Feature | Description |
 |---|---------|-------------|
-| 1 | **Placeholder Substitution** | Scans outgoing Repeater requests (URL path, headers, and body) for `{{variable_name}}` templates and replaces them with their actual values in real-time. |
+| 1 | **Placeholder Substitution** | Scans outgoing requests in **Repeater**, **Intruder**, and **Scanner** for `{{variable_name}}` templates and replaces them with their actual values in real-time. |
 | 2 | **Regex Auto-Deduction** | Highlight any token (JWT, cookie, JWE, anti-CSRF) in a response, right-click, and select *Assign to Variable...*. The scanner auto-generates the matching regex for JSON keys, query params, or XML tags. |
-| 3 | **Variables Dashboard** | A centralized tab in Burp Suite to manage variable values, auto-extraction rules, and background request execution. |
+| 3 | **Variables Dashboard** | A centralized tab in Burp Suite to manage variable values, auto-extraction rules, and background request execution. Includes independent toggles to enable/disable substitution in Repeater, Intruder, and Scanner. |
 | 4 | **Request Auto-Refreshing** | Saves the request template that generated your token (e.g., login or auth endpoint). Re-sends it instantly in a background thread from the tab to fetch a fresh token. |
 | 5 | **Recursive Injection** | If your saved refresh request itself depends on other variables (like credentials or client keys), they are substituted automatically before launching the request. |
-| 6 | **Interactive Rule Editor** | Click *Update Rule from Response...* to run the saved request and highlight the new token value directly in a raw HTTP response editor to auto-update the regex rule. |
-| 7 | **Repeater Integration** | Send your saved login/refresh requests directly to the Repeater tab for manual tweaking and testing. |
-| 8 | **Zero Dependencies** | Built using the native Montoya API. No external libraries, 100% self-contained JAR. |
+| 6 | **Transparent Session Recovery** | When a request containing variables receives an HTTP `401 Unauthorized` or `403 Forbidden` response, the extension automatically pauses the transaction, executes the refresh request, updates the variable, and re-sends the original request with the fresh token. |
+| 7 | **Interactive Rule Editor** | Click *Update Rule from Response...* to run the saved request and highlight the new token value directly in a raw HTTP response editor to auto-update the regex rule. |
+| 8 | **Repeater Integration** | Send your saved login/refresh requests directly to the Repeater tab for manual tweaking and testing. |
 
 ---
 
@@ -37,9 +37,9 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 
 *(Create an `images/` directory in your repository and save screenshots of the tab and the JDialog dialogs to display them here)*
 
-| Variables Suite Tab | Assign to Variable (Context Menu) |
+| Dynamic Variables Tab | Assign to Variable (Context Menu) |
 |:---:|:---:|
-| ![Variables Dashboard with Table, Value Editor, and Refresh Panel](images/dashboard.png) | ![Popup dialog with regex auto-deduction](images/assign_to_variable.png) |
+| ![Dynamic Variables Dashboard](images/dashboard.png) | ![Popup dialog with regex auto-deduction](images/assign_to_variable.png) |
 
 ---
 
@@ -60,12 +60,13 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 6. Make sure **"Save this request to refresh token in the future"** is checked.
 7. Click **Save Rule**.
 
-### 3. Background Token Refreshing
-1. When your session token expires, click on the **Variables** tab.
-2. Select your variable (e.g., `jwt`).
-3. Under the **Token Refresh Request** panel at the top-right, you will see `Saved Request: POST /api/login`.
-4. Click **Refresh Variable**.
-5. The extension executes the saved request template in the background, applies the regex pattern on the response, updates the variable value instantly, and shows a success notification.
+### 3. Transparent 401/403 Session Recovery
+1. Use a placeholder variable (e.g. `{{jwt}}`) in any Repeater, Intruder, or Scanner request.
+2. If the session expires and the server returns an HTTP 401 or 403 status:
+   - The extension intercepts the response before it is displayed.
+   - It executes the saved login request synchronously, updates the `jwt` variable value, and re-injects the new token.
+   - It re-sends the request to the target server and displays the successful response transparently.
+3. You do not need to manually copy-paste or click anything; the request heals itself.
 
 ### 4. Interactive Rule Updating
 1. If the API response structure changes, select your variable in the table.
@@ -82,7 +83,7 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 |----------|--------------|
 | **JWT/JWE Rotation** | Set up a regex extraction rule on the login endpoint response. The JWT variable updates dynamically whenever you send a login or authenticate request, updating all active Repeater templates. |
 | **Session Cookie Refresh** | Extract cookie headers (`Set-Cookie: session=([^;]+)`) and replace them in all target Repeater tabs using `Cookie: session={{session_cookie}}`. |
-| **Anti-CSRF Protection** | Extract CSRF tokens from HTML bodies or header responses. The token replaces `{{csrf_token}}` automatically on POST parameters. |
+| **Active Scanning & Fuzzing** | Run Intruder or Scanner audits using `{{token}}`. Since these tools support the toggles, when the token expires in the middle of a scan, the plugin auto-heals the session and continues the audit seamlessly. |
 | **Credential Management** | Store your testing passwords or administrative user logins as variables, and change them once globally to update all your fuzzing/repeating setups. |
 
 ---

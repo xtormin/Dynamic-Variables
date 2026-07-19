@@ -13,7 +13,7 @@ public class DynamicVariables implements BurpExtension {
         VariableManager variableManager = new VariableManager(api);
 
         // Register custom tab in Burp Suite
-        api.userInterface().registerSuiteTab("Variables", variableManager.getTabComponent());
+        api.userInterface().registerSuiteTab("Dynamic Variables", variableManager.getTabComponent());
 
         // Register HttpHandler for request substitution and response extraction
         api.http().registerHttpHandler(new VariableHttpHandler(api, variableManager));
@@ -27,6 +27,6 @@ public class DynamicVariables implements BurpExtension {
         });
 
         api.logging().logToOutput("Dynamic Variables Extension loaded successfully!");
-        api.logging().logToOutput("Define variables in the 'Variables' tab and use {{variable_name}} in Repeater requests.");
+        api.logging().logToOutput("Define variables in the 'Dynamic Variables' tab and use {{variable_name}} in Repeater requests.");
     }
 }

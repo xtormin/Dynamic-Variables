@@ -30,16 +30,25 @@ public class VariableManager {
     private final Map<String, String> values = new ConcurrentHashMap<>();
     private final Map<String, VariableExtractionRule> rules = new ConcurrentHashMap<>();
 
+    private boolean replacementMasterEnabled = true;
     private boolean replacementEnabled = true;
+    private boolean replacementIntruderEnabled = true;
+    private boolean replacementScannerEnabled = true;
     private boolean extractionEnabled = true;
+    private String refreshStatusCodes = "401, 403";
 
     // UI Components
     private JPanel mainPanel;
     private JTable variablesTable;
     private VariablesTableModel tableModel;
     private JTextArea valueTextArea;
+    
+    private JCheckBox replacementMasterCheckBox;
     private JCheckBox globalReplaceCheckBox;
+    private JCheckBox intruderReplaceCheckBox;
+    private JCheckBox scannerReplaceCheckBox;
     private JCheckBox globalExtractCheckBox;
+    private JTextField refreshStatusCodesField;
 
     // Rule Panel Components
     private JCheckBox ruleEnabledCheckBox;
@@ -84,12 +93,42 @@ public class VariableManager {
         }
     }
 
+    public boolean isReplacementMasterEnabled() {
+        return replacementMasterEnabled;
+    }
+
     public boolean isReplacementEnabled() {
         return replacementEnabled;
     }
 
+    public boolean isReplacementIntruderEnabled() {
+        return replacementIntruderEnabled;
+    }
+
+    public boolean isReplacementScannerEnabled() {
+        return replacementScannerEnabled;
+    }
+
     public boolean isExtractionEnabled() {
         return extractionEnabled;
+    }
+
+    public Set<Integer> getRefreshStatusCodes() {
+        Set<Integer> codes = new HashSet<>();
+        try {
+            String[] parts = refreshStatusCodes.split(",");
+            for (String part : parts) {
+                String trimmed = part.trim();
+                if (!trimmed.isEmpty()) {
+                    codes.add(Integer.parseInt(trimmed));
+                }
+            }
+        } catch (Exception e) {
+            codes.clear();
+            codes.add(401);
+            codes.add(403);
+        }
+        return codes;
     }
 
     public void updateVariableValue(String name, String value) {
@@ -141,22 +180,78 @@ public class VariableManager {
 
         // --- TOP GLOBAL SETTINGS PANEL ---
         JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 5));
-        globalReplaceCheckBox = new JCheckBox("Enable variable replacement in Repeater requests", replacementEnabled);
+        
+        globalReplaceCheckBox = new JCheckBox("Repeater", replacementEnabled);
         globalReplaceCheckBox.setFont(new Font(globalReplaceCheckBox.getFont().getName(), Font.BOLD, 12));
         globalReplaceCheckBox.addActionListener(e -> {
             replacementEnabled = globalReplaceCheckBox.isSelected();
             savePreferences();
         });
 
-        globalExtractCheckBox = new JCheckBox("Enable automatic extraction from responses", extractionEnabled);
+        intruderReplaceCheckBox = new JCheckBox("Intruder", replacementIntruderEnabled);
+        intruderReplaceCheckBox.setFont(new Font(intruderReplaceCheckBox.getFont().getName(), Font.BOLD, 12));
+        intruderReplaceCheckBox.addActionListener(e -> {
+            replacementIntruderEnabled = intruderReplaceCheckBox.isSelected();
+            savePreferences();
+        });
+
+        scannerReplaceCheckBox = new JCheckBox("Scanner", replacementScannerEnabled);
+        scannerReplaceCheckBox.setFont(new Font(scannerReplaceCheckBox.getFont().getName(), Font.BOLD, 12));
+        scannerReplaceCheckBox.addActionListener(e -> {
+            replacementScannerEnabled = scannerReplaceCheckBox.isSelected();
+            savePreferences();
+        });
+
+        // Set initial visibility of tool checkboxes based on master checkbox state
+        globalReplaceCheckBox.setVisible(replacementMasterEnabled);
+        intruderReplaceCheckBox.setVisible(replacementMasterEnabled);
+        scannerReplaceCheckBox.setVisible(replacementMasterEnabled);
+
+        replacementMasterCheckBox = new JCheckBox("Enable Variable Replacement", replacementMasterEnabled);
+        replacementMasterCheckBox.setFont(new Font(replacementMasterCheckBox.getFont().getName(), Font.BOLD, 12));
+        replacementMasterCheckBox.addActionListener(e -> {
+            replacementMasterEnabled = replacementMasterCheckBox.isSelected();
+            boolean visible = replacementMasterEnabled;
+            globalReplaceCheckBox.setVisible(visible);
+            intruderReplaceCheckBox.setVisible(visible);
+            scannerReplaceCheckBox.setVisible(visible);
+            savePreferences();
+            topPanel.revalidate();
+            topPanel.repaint();
+        });
+
+        globalExtractCheckBox = new JCheckBox("Enable Response Auto-Extraction", extractionEnabled);
         globalExtractCheckBox.setFont(new Font(globalExtractCheckBox.getFont().getName(), Font.BOLD, 12));
         globalExtractCheckBox.addActionListener(e -> {
             extractionEnabled = globalExtractCheckBox.isSelected();
             savePreferences();
         });
 
+        topPanel.add(replacementMasterCheckBox);
         topPanel.add(globalReplaceCheckBox);
+        topPanel.add(intruderReplaceCheckBox);
+        topPanel.add(scannerReplaceCheckBox);
+        
+        // Custom vertical divider
+        JSeparator separator = new JSeparator(JSeparator.VERTICAL);
+        separator.setPreferredSize(new Dimension(3, 20));
+        topPanel.add(separator);
+        
         topPanel.add(globalExtractCheckBox);
+
+        // Custom vertical divider 2
+        JSeparator separator2 = new JSeparator(JSeparator.VERTICAL);
+        separator2.setPreferredSize(new Dimension(3, 20));
+        topPanel.add(separator2);
+
+        topPanel.add(new JLabel("Refresh Status Codes:"));
+        refreshStatusCodesField = new JTextField(refreshStatusCodes, 8);
+        refreshStatusCodesField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
+            refreshStatusCodes = refreshStatusCodesField.getText();
+            savePreferences();
+        }));
+        topPanel.add(refreshStatusCodesField);
+
         mainPanel.add(topPanel, BorderLayout.NORTH);
 
         // --- CENTER SPLIT PANE ---
@@ -406,7 +501,7 @@ public class VariableManager {
         mainPanel.add(splitPane, BorderLayout.CENTER);
 
         // --- FOOTER INSTRUCTIONS ---
-        JLabel footerLabel = new JLabel("<html><b>Usage:</b> Define variables, use <b>{{variable_name}}</b> in Repeater. Highlight response text, right-click, and select <b>Assign to Variable</b> to automate.</html>");
+        JLabel footerLabel = new JLabel("Usage: Define variables, use {{variable_name}} in Repeater/Intruder/Scanner. Highlight response, right-click -> Assign to Variable to automate.");
         footerLabel.setBorder(new EmptyBorder(5, 5, 5, 5));
         mainPanel.add(footerLabel, BorderLayout.SOUTH);
 
@@ -945,98 +1040,13 @@ public class VariableManager {
                 // Run background thread to comply with BApp responsiveness guidelines
                 new Thread(() -> {
                     try {
-                        byte[] requestBytes = Base64.getDecoder().decode(rule.getSavedRequestBase64());
-                        HttpRequest savedReq = HttpRequest.httpRequest(ByteArray.byteArray(requestBytes));
-                        
-                        HttpService service = HttpService.httpService(
-                                rule.getSavedHost(),
-                                rule.getSavedPort(),
-                                rule.isSavedSecure()
-                        );
-                        savedReq = savedReq.withService(service);
-
-                        // Replace placeholders in the refresh request template using current variables!
-                        Map<String, String> variables = getVariables();
-
-                        // 1. Path replacement
-                        String path = savedReq.path();
-                        String newPath = replacePlaceholders(path, variables);
-                        if (!path.equals(newPath)) {
-                            savedReq = savedReq.withPath(newPath);
-                        }
-
-                        // 2. Headers replacement
-                        List<HttpHeader> headers = savedReq.headers();
-                        List<HttpHeader> newHeaders = new ArrayList<>();
-                        boolean headersModified = false;
-                        for (HttpHeader header : headers) {
-                            String value = header.value();
-                            String newValue = replacePlaceholders(value, variables);
-                            if (!value.equals(newValue)) {
-                                newHeaders.add(HttpHeader.httpHeader(header.name(), newValue));
-                                headersModified = true;
-                            } else {
-                                newHeaders.add(header);
-                            }
-                        }
-                        if (headersModified) {
-                            savedReq = savedReq.withRemovedHeaders(savedReq.headers()).withAddedHeaders(newHeaders);
-                        }
-
-                        // 3. Body replacement
-                        String body = savedReq.bodyToString();
-                        if (body != null && !body.isEmpty()) {
-                            String newBody = replacePlaceholders(body, variables);
-                            if (!body.equals(newBody)) {
-                                savedReq = savedReq.withBody(newBody);
-                            }
-                        }
-
-                        // Send request programmatically via Burp HTTP engine (obeys proxies & session settings)
-                        HttpRequestResponse reqResp = api.http().sendRequest(savedReq);
-
-                        if (reqResp.response() != null) {
-                            String sourceContent = "";
-                            if ("headers".equalsIgnoreCase(rule.getSource())) {
-                                StringBuilder sb = new StringBuilder();
-                                for (HttpHeader header : reqResp.response().headers()) {
-                                    sb.append(header.name()).append(": ").append(header.value()).append("\r\n");
-                                }
-                                sourceContent = sb.toString();
-                            } else {
-                                sourceContent = reqResp.response().bodyToString();
-                            }
-
-                            if (sourceContent != null && !sourceContent.isEmpty()) {
-                                java.util.regex.Pattern regexPattern = java.util.regex.Pattern.compile(rule.getRegex(), java.util.regex.Pattern.DOTALL);
-                                java.util.regex.Matcher matcher = regexPattern.matcher(sourceContent);
-                                if (matcher.find() && matcher.groupCount() >= 1) {
-                                    String extractedValue = matcher.group(1);
-                                    if (extractedValue != null) {
-                                        updateVariableValue(name, extractedValue);
-                                        SwingUtilities.invokeLater(() -> {
-                                            JOptionPane.showMessageDialog(mainPanel, 
-                                                    "Variable '" + name + "' updated successfully to:\n" + extractedValue, 
-                                                    "Refresh Success", JOptionPane.INFORMATION_MESSAGE);
-                                        });
-                                    }
-                                } else {
-                                    SwingUtilities.invokeLater(() -> {
-                                        JOptionPane.showMessageDialog(mainPanel, 
-                                                "Failed to extract variable from response. Regex pattern did not match.", 
-                                                "Refresh Error", JOptionPane.ERROR_MESSAGE);
-                                    });
-                                }
-                            } else {
-                                SwingUtilities.invokeLater(() -> {
-                                    JOptionPane.showMessageDialog(mainPanel, "Response was empty.", "Refresh Error", JOptionPane.ERROR_MESSAGE);
-                                });
-                            }
-                        } else {
-                            SwingUtilities.invokeLater(() -> {
-                                    JOptionPane.showMessageDialog(mainPanel, "No response received from target.", "Refresh Error", JOptionPane.ERROR_MESSAGE);
-                            });
-                        }
+                        refreshVariableSynchronously(name, rule);
+                        SwingUtilities.invokeLater(() -> {
+                            String extractedValue = values.getOrDefault(name, "");
+                            JOptionPane.showMessageDialog(mainPanel, 
+                                    "Variable '" + name + "' refreshed successfully to:\n" + extractedValue, 
+                                    "Refresh Success", JOptionPane.INFORMATION_MESSAGE);
+                        });
                     } catch (Exception ex) {
                         api.logging().logToError("Error refreshing variable '" + name + "': " + ex.getMessage());
                         SwingUtilities.invokeLater(() -> {
@@ -1050,6 +1060,93 @@ public class VariableManager {
                     }
                 }).start();
             }
+        }
+    }
+
+    // Synchronous execution (can block the calling thread)
+    public void refreshVariableSynchronously(String name, VariableExtractionRule rule) throws Exception {
+        if (rule == null || rule.getSavedRequestBase64() == null || rule.getSavedRequestBase64().isEmpty()) {
+            return;
+        }
+        
+        byte[] requestBytes = Base64.getDecoder().decode(rule.getSavedRequestBase64());
+        HttpRequest savedReq = HttpRequest.httpRequest(ByteArray.byteArray(requestBytes));
+        
+        HttpService service = HttpService.httpService(
+                rule.getSavedHost(),
+                rule.getSavedPort(),
+                rule.isSavedSecure()
+        );
+        savedReq = savedReq.withService(service);
+
+        // Replace placeholders in the refresh request template using current variables!
+        Map<String, String> variables = getVariables();
+
+        // 1. Path replacement
+        String path = savedReq.path();
+        String newPath = replacePlaceholders(path, variables);
+        if (!path.equals(newPath)) {
+            savedReq = savedReq.withPath(newPath);
+        }
+
+        // 2. Headers replacement
+        List<HttpHeader> headers = savedReq.headers();
+        List<HttpHeader> newHeaders = new ArrayList<>();
+        boolean headersModified = false;
+        for (HttpHeader header : headers) {
+            String value = header.value();
+            String newValue = replacePlaceholders(value, variables);
+            if (!value.equals(newValue)) {
+                newHeaders.add(HttpHeader.httpHeader(header.name(), newValue));
+                headersModified = true;
+            } else {
+                newHeaders.add(header);
+            }
+        }
+        if (headersModified) {
+            savedReq = savedReq.withRemovedHeaders(savedReq.headers()).withAddedHeaders(newHeaders);
+        }
+
+        // 3. Body replacement
+        String body = savedReq.bodyToString();
+        if (body != null && !body.isEmpty()) {
+            String newBody = replacePlaceholders(body, variables);
+            if (!body.equals(newBody)) {
+                savedReq = savedReq.withBody(newBody);
+            }
+        }
+
+        // Send request programmatically via Burp HTTP engine
+        HttpRequestResponse reqResp = api.http().sendRequest(savedReq);
+
+        if (reqResp.response() != null) {
+            String sourceContent = "";
+            if ("headers".equalsIgnoreCase(rule.getSource())) {
+                StringBuilder sb = new StringBuilder();
+                for (HttpHeader header : reqResp.response().headers()) {
+                    sb.append(header.name()).append(": ").append(header.value()).append("\r\n");
+                }
+                sourceContent = sb.toString();
+            } else {
+                sourceContent = reqResp.response().bodyToString();
+            }
+
+            if (sourceContent != null && !sourceContent.isEmpty()) {
+                java.util.regex.Pattern regexPattern = java.util.regex.Pattern.compile(rule.getRegex(), java.util.regex.Pattern.DOTALL);
+                java.util.regex.Matcher matcher = regexPattern.matcher(sourceContent);
+                if (matcher.find() && matcher.groupCount() >= 1) {
+                    String extractedValue = matcher.group(1);
+                    if (extractedValue != null) {
+                        updateVariableValue(name, extractedValue);
+                    }
+                } else {
+                    throw new Exception("Regex pattern did not match response.");
+                }
+            } else {
+                throw new Exception("Server response was empty.");
+            }
+        } else {
+            throw new Exception("No response received from target.");
         }
     }
 
@@ -1095,8 +1192,12 @@ public class VariableManager {
                 api.persistence().preferences().setString("repeater_variables_rules", ruleSb.toString());
 
                 // Save global toggles
+                api.persistence().preferences().setString("repeater_variables_replacement_master_enabled", String.valueOf(replacementMasterEnabled));
                 api.persistence().preferences().setString("repeater_variables_replacement_enabled", String.valueOf(replacementEnabled));
+                api.persistence().preferences().setString("repeater_variables_replacement_intruder_enabled", String.valueOf(replacementIntruderEnabled));
+                api.persistence().preferences().setString("repeater_variables_replacement_scanner_enabled", String.valueOf(replacementScannerEnabled));
                 api.persistence().preferences().setString("repeater_variables_extraction_enabled", String.valueOf(extractionEnabled));
+                api.persistence().preferences().setString("repeater_variables_refresh_status_codes", refreshStatusCodes);
             } catch (Exception e) {
                 api.logging().logToError("Failed to save variables preferences: " + e.getMessage());
             }
@@ -1146,14 +1247,34 @@ public class VariableManager {
                     }
                 }
 
+                String replaceMasterPref = api.persistence().preferences().getString("repeater_variables_replacement_master_enabled");
+                if (replaceMasterPref != null) {
+                    replacementMasterEnabled = Boolean.parseBoolean(replaceMasterPref);
+                }
+
                 String replaceEnabledPref = api.persistence().preferences().getString("repeater_variables_replacement_enabled");
                 if (replaceEnabledPref != null) {
                     replacementEnabled = Boolean.parseBoolean(replaceEnabledPref);
+                }
+                
+                String replaceIntruderPref = api.persistence().preferences().getString("repeater_variables_replacement_intruder_enabled");
+                if (replaceIntruderPref != null) {
+                    replacementIntruderEnabled = Boolean.parseBoolean(replaceIntruderPref);
+                }
+
+                String replaceScannerPref = api.persistence().preferences().getString("repeater_variables_replacement_scanner_enabled");
+                if (replaceScannerPref != null) {
+                    replacementScannerEnabled = Boolean.parseBoolean(replaceScannerPref);
                 }
 
                 String extractEnabledPref = api.persistence().preferences().getString("repeater_variables_extraction_enabled");
                 if (extractEnabledPref != null) {
                     extractionEnabled = Boolean.parseBoolean(extractEnabledPref);
+                }
+                
+                String codesPref = api.persistence().preferences().getString("repeater_variables_refresh_status_codes");
+                if (codesPref != null) {
+                    refreshStatusCodes = codesPref;
                 }
             } catch (Exception e) {
                 api.logging().logToError("Failed to load variables preferences: " + e.getMessage());
