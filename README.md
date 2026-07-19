@@ -104,7 +104,7 @@ The project uses Gradle to produce a clean, lightweight JAR file:
 
 The output JAR will be created at:
 ```
-build/libs/dynamic-variables-1.0.jar
+build/libs/dynamic-variables-1.0.0.jar
 ```
 
 ### Load in Burp Suite
@@ -113,7 +113,7 @@ build/libs/dynamic-variables-1.0.jar
 2. Go to **Extensions** → **Installed**.
 3. Click **Add**.
 4. Set **Extension type** to `Java`.
-5. Select the compiled `dynamic-variables-1.0.jar` file and click **Next**.
+5. Select the compiled `dynamic-variables-1.0.0.jar` file and click **Next**.
 
 ---
 
