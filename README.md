@@ -1,6 +1,6 @@
 # Dynamic Variables — Burp Suite Extension
 
-> **Placeholder-based request variables for Repeater, Intruder, Scanner, and Proxy with transparent auto-refreshing on session expiration (401/403) in Burp Suite.**
+> **Placeholder-based request variables for Repeater, Intruder, Scanner and Proxy with transparent auto-refreshing on session expiration (401/403) in Burp Suite.**
 
 Dynamic Variables is a Burp Suite extension that brings template variables and automatic session refreshes to your pentesting workflow. Define placeholders like `{{token}}` in Repeater, Intruder, Scanner, or Proxy requests (similar to how it is done in Postman), select text in HTTP responses to auto-generate regex extraction rules, and repeat login/refresh requests automatically in the background when your session expires.
 
