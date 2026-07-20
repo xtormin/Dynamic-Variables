@@ -37,9 +37,13 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 
 ## Screenshots
 
-| Dynamic Variables Tab | Assign to Variable (Context Menu) |
+| Dynamic Variables Tab |
+|:---:|
+| ![Dynamic Variables Dashboard](images/dashboard.png) |
+
+| Assign to Variable (Context Menu) | Variable usage in request |
 |:---:|:---:|
-| ![Dynamic Variables Dashboard](images/dashboard.png) | ![Popup dialog with regex auto-deduction](images/assign_to_variable.png) |
+| ![Popup dialog with regex auto-deduction](images/assign_to_variable.png) | ![Variable usage in request](images/variable_usage.png) |
 
 ---
 
@@ -115,7 +119,7 @@ gradle build
 
 The output JAR will be created at:
 ```
-build/libs/dynamic-variables-1.0.0.jar
+build/libs/dynamic-variables-1.0.1.jar
 ```
 
 ### Load in Burp Suite
@@ -124,7 +128,7 @@ build/libs/dynamic-variables-1.0.0.jar
 2. Go to **Extensions** → **Installed**.
 3. Click **Add**.
 4. Set **Extension type** to `Java`.
-5. Select the compiled `dynamic-variables-1.0.0.jar` file and click **Next**.
+5. Select the compiled `dynamic-variables-1.0.1.jar` file and click **Next**.
 
 ---
 
