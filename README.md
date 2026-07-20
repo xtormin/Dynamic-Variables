@@ -110,7 +110,7 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 The project uses Gradle to produce a clean, lightweight JAR file:
 
 ```bash
-./gradlew build
+gradle build
 ```
 
 The output JAR will be created at:

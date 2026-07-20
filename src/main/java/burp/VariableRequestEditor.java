@@ -65,6 +65,31 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
         varList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         varList.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
 
+        // Custom cell renderer to show variable value as tooltip
+        varList.setCellRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value != null) {
+                    String varName = value.toString();
+                    String varValue = variableManager.getVariables().get(varName);
+                    if (varValue != null) {
+                        // Truncate long values for tooltip
+                        if (varValue.length() > 200) {
+                            varValue = varValue.substring(0, 200) + "...";
+                        }
+                        // Use basic HTML to wrap text if it's long
+                        setToolTipText("<html><p style='width: 300px; word-wrap: break-word;'>" + 
+                            varValue.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + 
+                            "</p></html>");
+                    } else {
+                        setToolTipText("No value");
+                    }
+                }
+                return c;
+            }
+        });
+
         // Double-click selection action listener
         varList.addMouseListener(new MouseAdapter() {
             @Override
@@ -127,27 +152,40 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
         if (currentReq != null) {
             byte[] requestBytes = currentReq.toByteArray().getBytes();
             String reqStr = new String(requestBytes, StandardCharsets.UTF_8);
+            
+            Selection selection = nativeEditor.selection().orElse(null);
             int caret = nativeEditor.caretPosition();
+            
+            String placeholder = "{{" + varName + "}}";
+            String newReqStr;
+            int newCaret;
 
-            if (caret >= 0 && caret <= reqStr.length()) {
-                String placeholder = "{{" + varName + "}}";
+            if (selection != null && selection.offsets().startIndexInclusive() < selection.offsets().endIndexExclusive()) {
+                int start = selection.offsets().startIndexInclusive();
+                int end = selection.offsets().endIndexExclusive();
+                String prefix = reqStr.substring(0, start);
+                String suffix = reqStr.substring(end);
+                newReqStr = prefix + placeholder + suffix;
+                newCaret = start + placeholder.length();
+            } else if (caret >= 0 && caret <= reqStr.length()) {
                 String prefix = reqStr.substring(0, caret);
                 String suffix = reqStr.substring(caret);
-                String newReqStr = prefix + placeholder + suffix;
-
-                HttpRequest newReq = HttpRequest.httpRequest(currentReq.httpService(), newReqStr);
-                nativeEditor.setRequest(newReq);
-                this.isLocallyModified = true;
-
-                // Set caret position right after the newly inserted placeholder template
-                int newCaret = caret + placeholder.length();
-                if (newCaret <= newReqStr.length()) {
-                    nativeEditor.setCaretPosition(newCaret);
-                }
-                
-                // Grab focus back to the editor for continuous editing
-                nativeEditor.uiComponent().requestFocusInWindow();
+                newReqStr = prefix + placeholder + suffix;
+                newCaret = caret + placeholder.length();
+            } else {
+                return;
             }
+
+            HttpRequest newReq = HttpRequest.httpRequest(currentReq.httpService(), newReqStr);
+            nativeEditor.setRequest(newReq);
+            this.isLocallyModified = true;
+
+            if (newCaret <= newReqStr.length()) {
+                nativeEditor.setCaretPosition(newCaret);
+            }
+            
+            // Grab focus back to the editor for continuous editing
+            nativeEditor.uiComponent().requestFocusInWindow();
         }
     }
 
