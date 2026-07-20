@@ -30,12 +30,12 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 | 6 | **Transparent Session Recovery** | When a request containing variables receives an HTTP `401 Unauthorized` or `403 Forbidden` response, the extension automatically pauses the transaction, executes the refresh request, updates the variable, and re-sends the original request with the fresh token. |
 | 7 | **Interactive Rule Editor** | Click *Update Rule from Response...* to run the saved request and highlight the new token value directly in a raw HTTP response editor to auto-update the regex rule. |
 | 8 | **Repeater Integration** | Send your saved login/refresh requests directly to the Repeater tab for manual tweaking and testing. |
+| 9 | **Request Editor Sub-Tab** | Adds a custom request editor tab next to Raw/Hex to display a sidebar listing all defined variables. Double-click any variable to insert its `{{placeholder}}` at the cursor position. |
+| 10 | **Zero Dependencies** | Built using the native Montoya API. No external libraries, 100% self-contained JAR. |
 
 ---
 
 ## Screenshots
-
-*(Create an `images/` directory in your repository and save screenshots of the tab and the JDialog dialogs to display them here)*
 
 | Dynamic Variables Tab | Assign to Variable (Context Menu) |
 |:---:|:---:|
@@ -60,7 +60,18 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 6. Make sure **"Save this request to refresh token in the future"** is checked.
 7. Click **Save Rule**.
 
-### 3. Transparent 401/403 Session Recovery
+### 3. Using the Dynamic Variables Request Tab
+1. Open the **Repeater** tab.
+2. Under the **Request** viewer panel (where you see *Raw*, *Pretty*, *Hex*), click the **"Dynamic Variables"** tab.
+3. You will see:
+   - On the left: a list of your variables (e.g. `jwt`, `session_id`).
+   - On the right: the raw HTTP request text.
+4. Position your cursor in the HTTP request text (e.g., next to `Authorization: Bearer `).
+5. **Double-click** the variable `jwt` in the left list (or select it and click **Insert**).
+6. The placeholder `{{jwt}}` will be immediately inserted at the cursor position.
+7. Click **Send** to transmit the request.
+
+### 4. Transparent 401/403 Session Recovery
 1. Use a placeholder variable (e.g. `{{jwt}}`) in any Repeater, Intruder, or Scanner request.
 2. If the session expires and the server returns an HTTP 401 or 403 status:
    - The extension intercepts the response before it is displayed.
@@ -68,7 +79,7 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
    - It re-sends the request to the target server and displays the successful response transparently.
 3. You do not need to manually copy-paste or click anything; the request heals itself.
 
-### 4. Interactive Rule Updating
+### 5. Interactive Rule Updating
 1. If the API response structure changes, select your variable in the table.
 2. Click **Update Rule from Response...**.
 3. The plugin fetches a fresh response from the server and displays it in a raw viewer.

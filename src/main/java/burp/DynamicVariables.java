@@ -21,6 +21,9 @@ public class DynamicVariables implements BurpExtension {
         // Register ContextMenu provider for response selection to variables mapping
         api.userInterface().registerContextMenuItemsProvider(new VariableContextMenuProvider(api, variableManager));
 
+        // Register custom request editor tab for variable insertion helper
+        api.userInterface().registerHttpRequestEditorProvider(new VariableRequestEditorProvider(api, variableManager));
+
         // Register clean unload handler to comply with BApp Store guidelines
         api.extension().registerUnloadingHandler(() -> {
             api.logging().logToOutput("Dynamic Variables Extension unloaded successfully.");
