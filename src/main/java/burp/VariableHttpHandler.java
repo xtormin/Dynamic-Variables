@@ -137,9 +137,11 @@ public class VariableHttpHandler implements HttpHandler {
 
         // 1. Always run auto-extraction on normal responses first (if enabled)
         if (variableManager.isExtractionEnabled()) {
-            HttpRequest initiatingRequest = responseReceived.initiatingRequest();
-            if (initiatingRequest != null) {
-                runExtraction(initiatingRequest.path(), responseReceived.headers(), responseReceived.bodyToString());
+            if (!responseReceived.toolSource().isFromTool(ToolType.EXTENSIONS)) {
+                HttpRequest initiatingRequest = responseReceived.initiatingRequest();
+                if (initiatingRequest != null) {
+                    runExtraction(initiatingRequest.path(), responseReceived.headers(), responseReceived.bodyToString());
+                }
             }
         }
 
