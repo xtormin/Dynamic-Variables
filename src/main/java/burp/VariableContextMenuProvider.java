@@ -59,7 +59,8 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
 
         // Slice selected text
         if (start < 0 || end > responseStr.length() || start >= end) {
-            JOptionPane.showMessageDialog(null, "Invalid selection range.", "Error", JOptionPane.ERROR_MESSAGE);
+            Frame suiteFrame = api.userInterface().swingUtils().suiteFrame();
+            JOptionPane.showMessageDialog(suiteFrame, "Invalid selection range.", "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
         String selectedText = responseStr.substring(start, end);
