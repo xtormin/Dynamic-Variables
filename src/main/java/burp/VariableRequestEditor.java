@@ -1,11 +1,12 @@
 package burp;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.core.ByteArray;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.ui.Selection;
 import burp.api.montoya.ui.editor.EditorOptions;
-import burp.api.montoya.ui.editor.HttpRequestEditor;
+import burp.api.montoya.ui.editor.RawEditor;
 import burp.api.montoya.ui.editor.extension.EditorCreationContext;
 import burp.api.montoya.ui.editor.extension.EditorMode;
 import burp.api.montoya.ui.editor.extension.ExtensionProvidedHttpRequestEditor;
@@ -22,7 +23,7 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
     private final MontoyaApi api;
     private final VariableManager variableManager;
     private final EditorCreationContext creationContext;
-    private final HttpRequestEditor nativeEditor;
+    private final RawEditor nativeEditor;
 
     private JPanel mainPanel;
     private JList<String> varList;
@@ -35,11 +36,11 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
         this.variableManager = variableManager;
         this.creationContext = creationContext;
 
-        // Initialize native Burp request editor based on read-only constraints
+        // Initialize native Burp raw editor to avoid duplicated inner tabs
         if (creationContext.editorMode() == EditorMode.READ_ONLY) {
-            this.nativeEditor = api.userInterface().createHttpRequestEditor(EditorOptions.READ_ONLY);
+            this.nativeEditor = api.userInterface().createRawEditor(EditorOptions.READ_ONLY);
         } else {
-            this.nativeEditor = api.userInterface().createHttpRequestEditor();
+            this.nativeEditor = api.userInterface().createRawEditor();
         }
 
         createUI();
@@ -148,9 +149,9 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
             return;
         }
 
-        HttpRequest currentReq = nativeEditor.getRequest();
-        if (currentReq != null) {
-            byte[] requestBytes = currentReq.toByteArray().getBytes();
+        ByteArray currentReqBytes = nativeEditor.getContents();
+        if (currentReqBytes != null) {
+            byte[] requestBytes = currentReqBytes.getBytes();
             String reqStr = new String(requestBytes, StandardCharsets.UTF_8);
             
             Selection selection = nativeEditor.selection().orElse(null);
@@ -176,8 +177,7 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
                 return;
             }
 
-            HttpRequest newReq = HttpRequest.httpRequest(currentReq.httpService(), newReqStr);
-            nativeEditor.setRequest(newReq);
+            nativeEditor.setContents(ByteArray.byteArray(newReqStr.getBytes(StandardCharsets.UTF_8)));
             this.isLocallyModified = true;
 
             if (newCaret <= newReqStr.length()) {
@@ -191,7 +191,10 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
 
     @Override
     public HttpRequest getRequest() {
-        return nativeEditor.getRequest();
+        if (currentReqResp != null && currentReqResp.request() != null && currentReqResp.request().httpService() != null) {
+            return HttpRequest.httpRequest(currentReqResp.request().httpService(), nativeEditor.getContents());
+        }
+        return HttpRequest.httpRequest(nativeEditor.getContents());
     }
 
     @Override
@@ -199,14 +202,19 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
         this.currentReqResp = requestResponse;
         this.isLocallyModified = false;
         if (requestResponse != null && requestResponse.request() != null) {
-            nativeEditor.setRequest(requestResponse.request());
+            nativeEditor.setContents(requestResponse.request().toByteArray());
+        } else {
+            nativeEditor.setContents(ByteArray.byteArray(new byte[0]));
         }
         refreshVariableList();
     }
 
     @Override
     public boolean isEnabledFor(HttpRequestResponse requestResponse) {
-        // Always display the custom tab in request editors
+        // Only display if the context isn't an extension creating its own editor (avoids infinite loops if another extension embeds editors)
+        if (creationContext.toolSource().toolType() == burp.api.montoya.core.ToolType.EXTENSIONS) {
+            return false;
+        }
         return true;
     }
 

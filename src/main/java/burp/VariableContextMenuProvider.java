@@ -35,8 +35,9 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
             return Collections.emptyList();
         }
 
-        // Only show if selection context is RESPONSE
-        if (reqResp.selectionContext() != MessageEditorHttpRequestResponse.SelectionContext.RESPONSE) {
+        // Allow selection from both REQUEST and RESPONSE
+        if (reqResp.selectionContext() != MessageEditorHttpRequestResponse.SelectionContext.RESPONSE &&
+            reqResp.selectionContext() != MessageEditorHttpRequestResponse.SelectionContext.REQUEST) {
             return Collections.emptyList();
         }
 
@@ -53,36 +54,45 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         int end = range.endIndexExclusive();
 
         HttpRequestResponse requestResponse = reqResp.requestResponse();
-        byte[] responseBytes = requestResponse.response().toByteArray().getBytes();
-        String responseStr = new String(responseBytes, StandardCharsets.UTF_8);
+        
+        boolean isRequest = reqResp.selectionContext() == MessageEditorHttpRequestResponse.SelectionContext.REQUEST;
+        
+        byte[] bytes;
+        if (isRequest) {
+            bytes = requestResponse.request().toByteArray().getBytes();
+        } else {
+            bytes = requestResponse.response().toByteArray().getBytes();
+        }
+        
+        String textStr = new String(bytes, StandardCharsets.UTF_8);
         String path = requestResponse.request().path();
 
         // Slice selected text
-        if (start < 0 || end > responseStr.length() || start >= end) {
+        if (start < 0 || end > textStr.length() || start >= end) {
             Frame suiteFrame = api.userInterface().swingUtils().suiteFrame();
             JOptionPane.showMessageDialog(suiteFrame, "Invalid selection range.", "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
-        String selectedText = responseStr.substring(start, end);
+        String selectedText = textStr.substring(start, end);
 
         // Determine if selection is in headers or body
-        int doubleNewline = responseStr.indexOf("\r\n\r\n");
+        int doubleNewline = textStr.indexOf("\r\n\r\n");
         if (doubleNewline < 0) {
-            doubleNewline = responseStr.indexOf("\n\n");
+            doubleNewline = textStr.indexOf("\n\n");
         }
 
-        String source = "body";
-        String contextText = responseStr;
+        String source = isRequest ? "request_body" : "body";
+        String contextText = textStr;
         int contextStart = start;
         int contextEnd = end;
 
         if (doubleNewline >= 0) {
             if (start < doubleNewline) {
-                source = "headers";
-                contextText = responseStr.substring(0, doubleNewline);
+                source = isRequest ? "request_headers" : "headers";
+                contextText = textStr.substring(0, doubleNewline);
             } else {
-                source = "body";
-                contextText = responseStr.substring(doubleNewline + 4);
+                source = isRequest ? "request_body" : "body";
+                contextText = textStr.substring(doubleNewline + 4);
                 contextStart = Math.max(0, start - (doubleNewline + 4));
                 contextEnd = Math.max(0, end - (doubleNewline + 4));
             }
@@ -153,8 +163,14 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         gbc.weightx = 0.0;
         panel.add(new JLabel("Extract From:"), gbc);
 
-        JComboBox<String> sourceComboBox = new JComboBox<>(new String[]{"Response Body", "Response Headers"});
-        if ("headers".equals(source)) {
+        JComboBox<String> sourceComboBox = new JComboBox<>(new String[]{
+            "Response Body", "Response Headers", "Request Body", "Request Headers"
+        });
+        if ("request_body".equals(source)) {
+            sourceComboBox.setSelectedIndex(2);
+        } else if ("request_headers".equals(source)) {
+            sourceComboBox.setSelectedIndex(3);
+        } else if ("headers".equals(source)) {
             sourceComboBox.setSelectedIndex(1);
         } else {
             sourceComboBox.setSelectedIndex(0);
@@ -196,7 +212,13 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
             }
             String varName = selectedItem.toString().trim();
             String pathFilter = pathField.getText().trim();
-            String chosenSource = sourceComboBox.getSelectedIndex() == 1 ? "headers" : "body";
+            String chosenSource;
+            switch (sourceComboBox.getSelectedIndex()) {
+                case 1: chosenSource = "headers"; break;
+                case 2: chosenSource = "request_body"; break;
+                case 3: chosenSource = "request_headers"; break;
+                default: chosenSource = "body"; break;
+            }
             String regexPattern = regexField.getText().trim();
 
             String reqBase64 = "";

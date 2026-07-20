@@ -437,7 +437,9 @@ public class VariableManager {
         rgbc.weightx = 0.0;
         rulePanel.add(new JLabel("Extract From:"), rgbc);
 
-        sourceComboBox = new JComboBox<>(new String[]{"Response Body", "Response Headers"});
+        sourceComboBox = new JComboBox<>(new String[]{
+            "Response Body", "Response Headers", "Request Body", "Request Headers"
+        });
         sourceComboBox.addActionListener(e -> updateActiveRuleFromUI());
         rgbc.gridx = 1;
         rgbc.weightx = 1.0;
@@ -562,7 +564,11 @@ public class VariableManager {
         matchUrlField.setText(rule.getMatchUrl());
 
         sourceComboBox.setEnabled(true);
-        if ("headers".equalsIgnoreCase(rule.getSource())) {
+        if ("request_body".equals(rule.getSource())) {
+            sourceComboBox.setSelectedIndex(2);
+        } else if ("request_headers".equals(rule.getSource())) {
+            sourceComboBox.setSelectedIndex(3);
+        } else if ("headers".equalsIgnoreCase(rule.getSource())) {
             sourceComboBox.setSelectedIndex(1);
         } else {
             sourceComboBox.setSelectedIndex(0);
@@ -619,7 +625,13 @@ public class VariableManager {
             String name = variableNames.get(selectedRow);
             boolean ruleEnabled = ruleEnabledCheckBox.isSelected();
             String matchUrl = matchUrlField.getText().trim();
-            String source = sourceComboBox.getSelectedIndex() == 1 ? "headers" : "body";
+            String source;
+            switch (sourceComboBox.getSelectedIndex()) {
+                case 1: source = "headers"; break;
+                case 2: source = "request_body"; break;
+                case 3: source = "request_headers"; break;
+                default: source = "body"; break;
+            }
             String regex = regexField.getText().trim();
 
             synchronized (lock) {
@@ -848,12 +860,16 @@ public class VariableManager {
                     return;
                 }
 
-                byte[] responseBytes = reqResp.response().toByteArray().getBytes();
-                String responseStr = new String(responseBytes, StandardCharsets.UTF_8);
+                String textStr;
+                if (rule.getSource() != null && rule.getSource().startsWith("request_")) {
+                    textStr = new String(reqResp.request().toByteArray().getBytes(), StandardCharsets.UTF_8);
+                } else {
+                    textStr = new String(reqResp.response().toByteArray().getBytes(), StandardCharsets.UTF_8);
+                }
 
                 // Open selection dialog on EDT
                 SwingUtilities.invokeLater(() -> {
-                    showResponseSelectorDialog(name, rule, responseStr, selectedRow);
+                    showResponseSelectorDialog(name, rule, textStr, selectedRow);
                 });
 
             } catch (Exception ex) {
@@ -913,7 +929,9 @@ public class VariableManager {
         // Row 2: Extract from
         sgbc.gridy = 2; sgbc.gridx = 0; sgbc.weightx = 0.0;
         southPanel.add(new JLabel("Extract From:"), sgbc);
-        JComboBox<String> extractSrcCombo = new JComboBox<>(new String[]{"Response Body", "Response Headers"});
+        JComboBox<String> extractSrcCombo = new JComboBox<>(new String[]{
+            "Response Body", "Response Headers", "Request Body", "Request Headers"
+        });
         sgbc.gridx = 1; sgbc.weightx = 1.0;
         southPanel.add(extractSrcCombo, sgbc);
 
@@ -950,7 +968,15 @@ public class VariableManager {
 
                 String proposedRegex = generateProposedRegex(contextText, contextStart, contextEnd);
                 regexPropField.setText(proposedRegex);
-                extractSrcCombo.setSelectedIndex("headers".equalsIgnoreCase(source) ? 1 : 0);
+                if ("request_body".equals(source)) {
+                    extractSrcCombo.setSelectedIndex(2);
+                } else if ("request_headers".equals(source)) {
+                    extractSrcCombo.setSelectedIndex(3);
+                } else if ("headers".equalsIgnoreCase(source)) {
+                    extractSrcCombo.setSelectedIndex(1);
+                } else {
+                    extractSrcCombo.setSelectedIndex(0);
+                }
             }
         });
 
@@ -965,7 +991,13 @@ public class VariableManager {
                 JOptionPane.showMessageDialog(selectorDialog, "Please select some text to generate a regex.", "Error", JOptionPane.ERROR_MESSAGE);
                 return;
             }
-            String chosenSource = extractSrcCombo.getSelectedIndex() == 1 ? "headers" : "body";
+            String chosenSource;
+            switch (extractSrcCombo.getSelectedIndex()) {
+                case 1: chosenSource = "headers"; break;
+                case 2: chosenSource = "request_body"; break;
+                case 3: chosenSource = "request_headers"; break;
+                default: chosenSource = "body"; break;
+            }
 
             synchronized (lock) {
                 rule.setRegex(finalRegex);
@@ -1137,7 +1169,17 @@ public class VariableManager {
 
         if (reqResp.response() != null) {
             String sourceContent = "";
-            if ("headers".equalsIgnoreCase(rule.getSource())) {
+            String source = rule.getSource() != null ? rule.getSource().toLowerCase() : "body";
+            
+            if ("request_headers".equals(source)) {
+                StringBuilder sb = new StringBuilder();
+                for (HttpHeader header : reqResp.request().headers()) {
+                    sb.append(header.name()).append(": ").append(header.value()).append("\r\n");
+                }
+                sourceContent = sb.toString();
+            } else if ("request_body".equals(source)) {
+                sourceContent = reqResp.request().bodyToString();
+            } else if ("headers".equals(source)) {
                 StringBuilder sb = new StringBuilder();
                 for (HttpHeader header : reqResp.response().headers()) {
                     sb.append(header.name()).append(": ").append(header.value()).append("\r\n");
