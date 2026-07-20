@@ -40,6 +40,8 @@ public class VariableHttpHandler implements HttpHandler {
                 isEnabled = variableManager.isReplacementIntruderEnabled();
             } else if (requestToBeSent.toolSource().isFromTool(ToolType.SCANNER)) {
                 isEnabled = variableManager.isReplacementScannerEnabled();
+            } else if (requestToBeSent.toolSource().isFromTool(ToolType.PROXY)) {
+                isEnabled = variableManager.isReplacementProxyEnabled();
             }
         }
 

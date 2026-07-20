@@ -1,8 +1,8 @@
 # Dynamic Variables — Burp Suite Extension
 
-> **Placeholder-based request variables for Repeater, Intruder, and Scanner with transparent auto-refreshing on session expiration (401/403) in Burp Suite.**
+> **Placeholder-based request variables for Repeater, Intruder, Scanner, and Proxy with transparent auto-refreshing on session expiration (401/403) in Burp Suite.**
 
-Dynamic Variables is a Burp Suite extension that brings template variables and automatic session refreshes to your pentesting workflow. Define placeholders like `{{token}}` in Repeater, Intruder, or Scanner requests (similar to how it is done in Postman), select text in HTTP responses to auto-generate regex extraction rules, and repeat login/refresh requests automatically in the background when your session expires.
+Dynamic Variables is a Burp Suite extension that brings template variables and automatic session refreshes to your pentesting workflow. Define placeholders like `{{token}}` in Repeater, Intruder, Scanner, or Proxy requests (similar to how it is done in Postman), select text in HTTP responses to auto-generate regex extraction rules, and repeat login/refresh requests automatically in the background when your session expires.
 
 ---
 
@@ -22,9 +22,9 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 
 | # | Feature | Description |
 |---|---------|-------------|
-| 1 | **Placeholder Substitution** | Scans outgoing requests in **Repeater**, **Intruder**, and **Scanner** for `{{variable_name}}` templates and replaces them with their actual values in real-time. |
+| 1 | **Placeholder Substitution** | Scans outgoing requests in **Repeater**, **Intruder**, **Scanner**, and **Proxy** for `{{variable_name}}` templates and replaces them with their actual values in real-time. |
 | 2 | **Regex Auto-Deduction** | Highlight any token (JWT, cookie, JWE, anti-CSRF) in a response, right-click, and select *Assign to Variable...*. The scanner auto-generates the matching regex for JSON keys, query params, or XML tags. |
-| 3 | **Variables Dashboard** | A centralized tab in Burp Suite to manage variable values, auto-extraction rules, and background request execution. Includes independent toggles to enable/disable substitution in Repeater, Intruder, and Scanner. |
+| 3 | **Variables Dashboard** | A centralized tab in Burp Suite to manage variable values, auto-extraction rules, and background request execution. Includes independent toggles to enable/disable substitution in Repeater, Intruder, Scanner, and Proxy. |
 | 4 | **Request Auto-Refreshing** | Saves the request template that generated your token (e.g., login or auth endpoint). Re-sends it instantly in a background thread from the tab to fetch a fresh token. |
 | 5 | **Recursive Injection** | If your saved refresh request itself depends on other variables (like credentials or client keys), they are substituted automatically before launching the request. |
 | 6 | **Transparent Session Recovery** | When a request containing variables receives an HTTP `401 Unauthorized` or `403 Forbidden` response, the extension automatically pauses the transaction, executes the refresh request, updates the variable, and re-sends the original request with the fresh token. |

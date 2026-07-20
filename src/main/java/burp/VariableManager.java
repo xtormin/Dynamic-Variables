@@ -34,6 +34,7 @@ public class VariableManager {
     private boolean replacementEnabled = true;
     private boolean replacementIntruderEnabled = true;
     private boolean replacementScannerEnabled = true;
+    private boolean replacementProxyEnabled = false;
     private boolean extractionEnabled = true;
     private String refreshStatusCodes = "401, 403";
 
@@ -47,6 +48,7 @@ public class VariableManager {
     private JCheckBox globalReplaceCheckBox;
     private JCheckBox intruderReplaceCheckBox;
     private JCheckBox scannerReplaceCheckBox;
+    private JCheckBox proxyReplaceCheckBox;
     private JCheckBox globalExtractCheckBox;
     private JTextField refreshStatusCodesField;
 
@@ -107,6 +109,10 @@ public class VariableManager {
 
     public boolean isReplacementScannerEnabled() {
         return replacementScannerEnabled;
+    }
+
+    public boolean isReplacementProxyEnabled() {
+        return replacementProxyEnabled;
     }
 
     public boolean isExtractionEnabled() {
@@ -202,10 +208,18 @@ public class VariableManager {
             savePreferences();
         });
 
+        proxyReplaceCheckBox = new JCheckBox("Proxy", replacementProxyEnabled);
+        proxyReplaceCheckBox.setFont(new Font(proxyReplaceCheckBox.getFont().getName(), Font.BOLD, 12));
+        proxyReplaceCheckBox.addActionListener(e -> {
+            replacementProxyEnabled = proxyReplaceCheckBox.isSelected();
+            savePreferences();
+        });
+
         // Set initial visibility of tool checkboxes based on master checkbox state
         globalReplaceCheckBox.setVisible(replacementMasterEnabled);
         intruderReplaceCheckBox.setVisible(replacementMasterEnabled);
         scannerReplaceCheckBox.setVisible(replacementMasterEnabled);
+        proxyReplaceCheckBox.setVisible(replacementMasterEnabled);
 
         replacementMasterCheckBox = new JCheckBox("Enable Variable Replacement", replacementMasterEnabled);
         replacementMasterCheckBox.setFont(new Font(replacementMasterCheckBox.getFont().getName(), Font.BOLD, 12));
@@ -215,6 +229,7 @@ public class VariableManager {
             globalReplaceCheckBox.setVisible(visible);
             intruderReplaceCheckBox.setVisible(visible);
             scannerReplaceCheckBox.setVisible(visible);
+            proxyReplaceCheckBox.setVisible(visible);
             savePreferences();
             topPanel.revalidate();
             topPanel.repaint();
@@ -231,6 +246,7 @@ public class VariableManager {
         topPanel.add(globalReplaceCheckBox);
         topPanel.add(intruderReplaceCheckBox);
         topPanel.add(scannerReplaceCheckBox);
+        topPanel.add(proxyReplaceCheckBox);
         
         // Custom vertical divider
         JSeparator separator = new JSeparator(JSeparator.VERTICAL);
@@ -1196,6 +1212,7 @@ public class VariableManager {
                 api.persistence().preferences().setString("repeater_variables_replacement_enabled", String.valueOf(replacementEnabled));
                 api.persistence().preferences().setString("repeater_variables_replacement_intruder_enabled", String.valueOf(replacementIntruderEnabled));
                 api.persistence().preferences().setString("repeater_variables_replacement_scanner_enabled", String.valueOf(replacementScannerEnabled));
+                api.persistence().preferences().setString("repeater_variables_replacement_proxy_enabled", String.valueOf(replacementProxyEnabled));
                 api.persistence().preferences().setString("repeater_variables_extraction_enabled", String.valueOf(extractionEnabled));
                 api.persistence().preferences().setString("repeater_variables_refresh_status_codes", refreshStatusCodes);
             } catch (Exception e) {
@@ -1265,6 +1282,11 @@ public class VariableManager {
                 String replaceScannerPref = api.persistence().preferences().getString("repeater_variables_replacement_scanner_enabled");
                 if (replaceScannerPref != null) {
                     replacementScannerEnabled = Boolean.parseBoolean(replaceScannerPref);
+                }
+
+                String replaceProxyPref = api.persistence().preferences().getString("repeater_variables_replacement_proxy_enabled");
+                if (replaceProxyPref != null) {
+                    replacementProxyEnabled = Boolean.parseBoolean(replaceProxyPref);
                 }
 
                 String extractEnabledPref = api.persistence().preferences().getString("repeater_variables_extraction_enabled");
