@@ -237,6 +237,7 @@ public class VariableManager {
 
         globalExtractCheckBox = new JCheckBox("Enable Response Auto-Extraction", extractionEnabled);
         globalExtractCheckBox.setFont(new Font(globalExtractCheckBox.getFont().getName(), Font.BOLD, 12));
+        globalExtractCheckBox.setToolTipText("Automatically extracts variable values from responses to keep them updated in the background.");
         globalExtractCheckBox.addActionListener(e -> {
             extractionEnabled = globalExtractCheckBox.isSelected();
             savePreferences();
@@ -260,8 +261,11 @@ public class VariableManager {
         separator2.setPreferredSize(new Dimension(3, 20));
         topPanel.add(separator2);
 
-        topPanel.add(new JLabel("Refresh Status Codes:"));
+        JLabel refreshStatusCodesLabel = new JLabel("Refresh Status Codes:");
+        refreshStatusCodesLabel.setToolTipText("HTTP status codes (comma separated) that trigger an automatic token refresh (e.g., 401, 403).");
+        topPanel.add(refreshStatusCodesLabel);
         refreshStatusCodesField = new JTextField(refreshStatusCodes, 8);
+        refreshStatusCodesField.setToolTipText("HTTP status codes (comma separated) that trigger an automatic token refresh (e.g., 401, 403).");
         refreshStatusCodesField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
             refreshStatusCodes = refreshStatusCodesField.getText();
             savePreferences();
