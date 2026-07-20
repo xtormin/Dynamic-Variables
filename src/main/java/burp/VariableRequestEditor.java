@@ -116,6 +116,8 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
         }
     }
 
+    private boolean isLocallyModified = false;
+
     private void insertPlaceholder(String varName) {
         if (creationContext.editorMode() == EditorMode.READ_ONLY) {
             return;
@@ -135,6 +137,7 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
 
                 HttpRequest newReq = HttpRequest.httpRequest(currentReq.httpService(), newReqStr);
                 nativeEditor.setRequest(newReq);
+                this.isLocallyModified = true;
 
                 // Set caret position right after the newly inserted placeholder template
                 int newCaret = caret + placeholder.length();
@@ -156,6 +159,7 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
     @Override
     public void setRequestResponse(HttpRequestResponse requestResponse) {
         this.currentReqResp = requestResponse;
+        this.isLocallyModified = false;
         if (requestResponse != null && requestResponse.request() != null) {
             nativeEditor.setRequest(requestResponse.request());
         }
@@ -185,6 +189,6 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
 
     @Override
     public boolean isModified() {
-        return nativeEditor.isModified();
+        return isLocallyModified || nativeEditor.isModified();
     }
 }
