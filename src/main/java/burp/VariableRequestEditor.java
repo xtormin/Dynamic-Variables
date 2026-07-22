@@ -108,10 +108,9 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
                         if (varValue.length() > 200) {
                             varValue = varValue.substring(0, 200) + "...";
                         }
-                        // Use basic HTML to wrap text if it's long
-                        setToolTipText("<html><p style='width: 300px; word-wrap: break-word;'>" + 
-                            varValue.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + 
-                            "</p></html>");
+                        // Burp renders extension tooltips as plain text, so HTML markup would
+                        // be shown literally instead of wrapping the value.
+                        setToolTipText(varValue);
                     } else {
                         setToolTipText("No value");
                     }
@@ -217,7 +216,7 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
             Selection selection = nativeEditor.selection().orElse(null);
             int caret = nativeEditor.caretPosition();
             
-            String placeholder = "{{" + varName + "}}";
+            String placeholder = variableManager.placeholderFor(varName);
             String newReqStr;
             int newCaret;
 

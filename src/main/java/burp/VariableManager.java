@@ -48,6 +48,8 @@ public final class VariableManager {
     private boolean replacementProxyEnabled = false;
     private boolean extractionEnabled = true;
     private String refreshStatusCodes = "401, 403";
+    private volatile boolean placeholderTagEnabled = false;
+    private volatile String placeholderTag = "dv";
 
     // UI Components
     private JPanel mainPanel;
@@ -62,6 +64,7 @@ public final class VariableManager {
     private JCheckBox proxyReplaceCheckBox;
     private JCheckBox globalExtractCheckBox;
     private JTextField refreshStatusCodesField;
+    private JLabel placeholderUsageLabel;
 
     // Rule Panel Components
     private JCheckBox ruleEnabledCheckBox;
@@ -133,6 +136,14 @@ public final class VariableManager {
 
     public String qualifyVariableName(String folderName, String localName) {
         return VariableNames.qualify(folderName, localName);
+    }
+
+    public VariableNames.PlaceholderStyle getPlaceholderStyle() {
+        return new VariableNames.PlaceholderStyle(placeholderTagEnabled, placeholderTag);
+    }
+
+    public String placeholderFor(String qualifiedName) {
+        return VariableNames.placeholder(qualifiedName, getPlaceholderStyle());
     }
 
     public void addOrUpdateExtractionRuleInFolder(String folderName, String localName, String value,
@@ -350,6 +361,15 @@ public final class VariableManager {
             savePreferences();
         }));
         topPanel.add(refreshStatusCodesField);
+
+        JSeparator separator3 = new JSeparator(JSeparator.VERTICAL);
+        separator3.setPreferredSize(new Dimension(3, 20));
+        topPanel.add(separator3);
+
+        JButton settingsButton = new JButton("Configuration...");
+        settingsButton.setToolTipText("Configure an optional tag that uniquely identifies variable placeholders.");
+        settingsButton.addActionListener(e -> showPlaceholderSettingsDialog());
+        topPanel.add(settingsButton);
 
         mainPanel.add(topPanel, BorderLayout.NORTH);
 
@@ -626,12 +646,95 @@ public final class VariableManager {
         mainPanel.add(splitPane, BorderLayout.CENTER);
 
         // --- FOOTER INSTRUCTIONS ---
-        JLabel footerLabel = new JLabel("Usage: {{variable}} for Ungrouped or {{folder.variable}} for grouped variables. Right-click a response selection to automate extraction.");
-        footerLabel.setBorder(new EmptyBorder(5, 5, 5, 5));
-        mainPanel.add(footerLabel, BorderLayout.SOUTH);
+        placeholderUsageLabel = new JLabel();
+        placeholderUsageLabel.setBorder(new EmptyBorder(5, 5, 5, 5));
+        updatePlaceholderUsageLabel();
+        mainPanel.add(placeholderUsageLabel, BorderLayout.SOUTH);
 
         // Disable details until selection
         updateDetailsPanel(-1);
+    }
+
+    private void showPlaceholderSettingsDialog() {
+        JCheckBox tagEnabledCheckBox = new JCheckBox("Use a tag in variable placeholders", placeholderTagEnabled);
+        JTextField tagField = new JTextField(placeholderTag, 20);
+        JLabel previewLabel = new JLabel();
+        JLabel validationLabel = new JLabel(" ");
+        validationLabel.setForeground(new Color(180, 40, 40));
+
+        Runnable updateState = () -> {
+            boolean enabled = tagEnabledCheckBox.isSelected();
+            tagField.setEnabled(enabled);
+            String candidate = tagField.getText().trim();
+            boolean valid = !enabled || VariableNames.isValidTag(candidate);
+            validationLabel.setText(valid ? " "
+                    : "The tag must start with a letter and contain only letters, numbers, _ or -. ");
+            previewLabel.setText("Example: " + (valid
+                    ? VariableNames.placeholder("token", new VariableNames.PlaceholderStyle(enabled,
+                            enabled ? candidate : ""))
+                    : "{{tag:token}}"));
+        };
+
+        tagEnabledCheckBox.addActionListener(e -> updateState.run());
+        tagField.getDocument().addDocumentListener(new SimpleDocumentListener(updateState::run));
+        updateState.run();
+
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.gridwidth = 2;
+        panel.add(tagEnabledCheckBox, gbc);
+        gbc.gridy = 1;
+        gbc.gridwidth = 1;
+        gbc.weightx = 0;
+        panel.add(new JLabel("Tag:"), gbc);
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        panel.add(tagField, gbc);
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.gridwidth = 2;
+        panel.add(previewLabel, gbc);
+        gbc.gridy = 3;
+        panel.add(validationLabel, gbc);
+        gbc.gridy = 4;
+        JPanel behaviorNotice = new JPanel();
+        behaviorNotice.setLayout(new BoxLayout(behaviorNotice, BoxLayout.Y_AXIS));
+        behaviorNotice.add(new JLabel("Existing requests are not rewritten automatically. When tagging is enabled,"));
+        behaviorNotice.add(new JLabel("only placeholders containing the configured tag are replaced."));
+        panel.add(behaviorNotice, gbc);
+
+        boolean enabled;
+        String tag;
+        while (true) {
+            int result = JOptionPane.showConfirmDialog(mainPanel, panel, "Placeholder Configuration",
+                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+            if (result != JOptionPane.OK_OPTION) return;
+
+            enabled = tagEnabledCheckBox.isSelected();
+            tag = tagField.getText().trim();
+            if (!enabled || VariableNames.isValidTag(tag)) break;
+            JOptionPane.showMessageDialog(mainPanel,
+                    "The tag must start with a letter and contain only letters, numbers, _ or -.",
+                    "Invalid Tag", JOptionPane.ERROR_MESSAGE);
+        }
+
+        placeholderTagEnabled = enabled;
+        if (!tag.isEmpty()) placeholderTag = tag;
+        savePreferences();
+        updatePlaceholderUsageLabel();
+        tableModel.fireTableDataChanged();
+    }
+
+    private void updatePlaceholderUsageLabel() {
+        if (placeholderUsageLabel == null) return;
+        placeholderUsageLabel.setText("Usage: " + placeholderFor("variable") + " for Ungrouped or "
+                + placeholderFor("folder.variable")
+                + " for grouped variables. Right-click a response selection to automate extraction.");
     }
 
     private void updateDetailsPanel(int selectedRow) {
@@ -1008,7 +1111,8 @@ public final class VariableManager {
         selectorDialog.setLocationRelativeTo(api.userInterface().swingUtils().suiteFrame());
 
         // Header instructions
-        JLabel instrLabel = new JLabel("<html><body style='padding:5px;'>Highlight/select the text you want to extract from the response below. The regex will be auto-generated.</body></html>");
+        JLabel instrLabel = new JLabel("Highlight/select the text you want to extract from the response below. The regex will be auto-generated.");
+        instrLabel.setBorder(new EmptyBorder(5, 5, 5, 5));
         selectorDialog.add(instrLabel, BorderLayout.NORTH);
 
         // Editor
@@ -1323,7 +1427,7 @@ public final class VariableManager {
     }
 
     private String replacePlaceholders(String text, Map<String, String> variables) {
-        return VariableNames.replacePlaceholders(text, variables);
+        return VariableNames.replacePlaceholders(text, variables, getPlaceholderStyle());
     }
 
     public void savePreferences() {
@@ -1364,6 +1468,7 @@ public final class VariableManager {
                 api.persistence().preferences().setString("repeater_variables_replacement_proxy_enabled", String.valueOf(replacementProxyEnabled));
                 api.persistence().preferences().setString("repeater_variables_extraction_enabled", String.valueOf(extractionEnabled));
                 api.persistence().preferences().setString("repeater_variables_refresh_status_codes", refreshStatusCodes);
+                PlaceholderPreferences.save(api.persistence().preferences()::setString, getPlaceholderStyle());
             } catch (Exception e) {
                 api.logging().logToError("Failed to save variables preferences: " + e.getMessage());
             }
@@ -1469,6 +1574,10 @@ public final class VariableManager {
                 if (codesPref != null) {
                     refreshStatusCodes = codesPref;
                 }
+                VariableNames.PlaceholderStyle placeholderStyle = PlaceholderPreferences.load(
+                        api.persistence().preferences()::getString, api.logging()::logToError);
+                placeholderTagEnabled = placeholderStyle.tagEnabled();
+                placeholderTag = placeholderStyle.tag();
                 String ungroupedPref = api.persistence().preferences().getString("dynamic_variables_ungrouped_expanded");
                 if (ungroupedPref != null) ungroupedExpanded = Boolean.parseBoolean(ungroupedPref);
             } catch (Exception e) {
@@ -1619,7 +1728,7 @@ public final class VariableManager {
         JMenuItem copy = new JMenuItem("Copy Placeholder");
         copy.setEnabled(tableRow != null && tableRow.variable != null);
         copy.addActionListener(e -> Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
-                new StringSelection("{{" + qualifiedName(tableRow.variable) + "}}"), null));
+                new StringSelection(placeholderFor(qualifiedName(tableRow.variable))), null));
         JMenuItem move = new JMenuItem("Move to...");
         move.setEnabled(tableRow != null && tableRow.variable != null);
         move.addActionListener(e -> showMoveDialog(tableRow.variable));
@@ -1659,7 +1768,8 @@ public final class VariableManager {
             JOptionPane.showMessageDialog(mainPanel, "Variable '" + newKey + "' already exists.", "Duplicate Variable", JOptionPane.ERROR_MESSAGE);
             return;
         }
-        if (JOptionPane.showConfirmDialog(mainPanel, "Placeholder will change:\n{{" + oldKey + "}} -> {{" + newKey + "}}",
+        if (JOptionPane.showConfirmDialog(mainPanel, "Placeholder will change:\n" + placeholderFor(oldKey)
+                + " -> " + placeholderFor(newKey),
                 "Rename Variable", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
         definition.setName(newName);
         rebuildRuntimeMapsFromDefinitions();
@@ -1682,8 +1792,8 @@ public final class VariableManager {
             }
         }
         StringBuilder changes = new StringBuilder("The following placeholders will change:\n");
-        for (VariableDefinition child : children) changes.append("{{").append(qualifiedName(child)).append("}} -> {{")
-                .append(newName).append('.').append(child.getName()).append("}}\n");
+        for (VariableDefinition child : children) changes.append(placeholderFor(qualifiedName(child))).append(" -> ")
+                .append(placeholderFor(newName + "." + child.getName())).append('\n');
         if (!children.isEmpty() && JOptionPane.showConfirmDialog(mainPanel, changes.toString(), "Rename Folder",
                 JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
         folder.setName(newName);
@@ -1713,7 +1823,7 @@ public final class VariableManager {
             return false;
         }
         if (confirm && !oldKey.equals(newKey) && JOptionPane.showConfirmDialog(mainPanel,
-                "Placeholder will change:\n{{" + oldKey + "}} -> {{" + newKey + "}}", "Move Variable",
+                "Placeholder will change:\n" + placeholderFor(oldKey) + " -> " + placeholderFor(newKey), "Move Variable",
                 JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return false;
         String oldFolderId = definition.getFolderId();
         List<VariableDefinition> oldGroup = new ArrayList<>(definitions.stream()
@@ -2022,7 +2132,7 @@ public final class VariableManager {
             label.setFont(label.getFont().deriveFont(tableRow != null && tableRow.folderRow ? Font.BOLD : Font.PLAIN));
             if (tableRow != null && tableRow.variable != null) {
                 label.setText("    " + value);
-                label.setToolTipText("{{" + qualifiedName(tableRow.variable) + "}}");
+                label.setToolTipText(placeholderFor(qualifiedName(tableRow.variable)));
             } else {
                 label.setToolTipText(null);
             }
