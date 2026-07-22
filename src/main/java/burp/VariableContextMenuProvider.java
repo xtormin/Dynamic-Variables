@@ -2,7 +2,9 @@ package burp;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.core.Range;
+import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.ui.contextmenu.ContextMenuEvent;
 import burp.api.montoya.ui.contextmenu.ContextMenuItemsProvider;
 import burp.api.montoya.ui.contextmenu.MessageEditorHttpRequestResponse;
@@ -11,9 +13,12 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 public class VariableContextMenuProvider implements ContextMenuItemsProvider {
     private final MontoyaApi api;
@@ -31,21 +36,224 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         }
 
         MessageEditorHttpRequestResponse reqResp = event.messageEditorRequestResponse().get();
-        if (reqResp.selectionOffsets().isEmpty()) {
-            return Collections.emptyList();
+        List<Component> items = new ArrayList<>();
+
+        if (reqResp.selectionOffsets().isPresent()) {
+            JMenuItem assignItem = new JMenuItem("Assign to Variable...");
+            assignItem.addActionListener(e -> showConfigDialog(event));
+            items.add(assignItem);
         }
 
-        // Allow selection from both REQUEST and RESPONSE
-        if (reqResp.selectionContext() != MessageEditorHttpRequestResponse.SelectionContext.RESPONSE &&
-            reqResp.selectionContext() != MessageEditorHttpRequestResponse.SelectionContext.REQUEST) {
-            return Collections.emptyList();
+        if (reqResp.selectionContext() == MessageEditorHttpRequestResponse.SelectionContext.REQUEST) {
+            JMenuItem switchFolderItem = new JMenuItem("Cambiar carpeta de variables\u2026");
+            switchFolderItem.setEnabled(hasUsefulFolderRemap(reqResp.requestResponse().request()));
+            switchFolderItem.setToolTipText("Sustituye los placeholders coincidentes de una carpeta por los de otra.");
+            switchFolderItem.addActionListener(e -> showFolderRemapDialog(reqResp));
+            items.add(switchFolderItem);
         }
 
-        JMenuItem menuItem = new JMenuItem("Assign to Variable...");
-        menuItem.addActionListener(e -> showConfigDialog(event));
-
-        return List.of(menuItem);
+        return items;
     }
+
+    private boolean hasUsefulFolderRemap(HttpRequest request) {
+        String requestText = editableRequestText(request);
+        List<String> sourceFolders = VariableNames.detectPlaceholderFolders(requestText);
+        for (String sourceFolder : sourceFolders) {
+            for (String targetFolder : variableManager.getFolderNames()) {
+                if (sourceFolder.equals(targetFolder)) continue;
+                Set<String> targets = new LinkedHashSet<>(variableManager.getVariableNamesInFolder(targetFolder));
+                if (VariableNames.remapFolderPlaceholders(requestText, sourceFolder, targetFolder, targets).changed()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void showFolderRemapDialog(MessageEditorHttpRequestResponse editor) {
+        HttpRequest originalRequest = editor.requestResponse().request();
+        String requestText = editableRequestText(originalRequest);
+        List<String> detectedFolders = VariableNames.detectPlaceholderFolders(requestText);
+        if (detectedFolders.isEmpty()) {
+            JOptionPane.showMessageDialog(api.userInterface().swingUtils().suiteFrame(),
+                    "La petición no contiene placeholders con carpeta.", "Cambiar carpeta de variables",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        Frame suiteFrame = api.userInterface().swingUtils().suiteFrame();
+        JDialog dialog = new JDialog(suiteFrame, "Cambiar carpeta de variables", Dialog.ModalityType.APPLICATION_MODAL);
+        dialog.setLayout(new BorderLayout(10, 10));
+        dialog.setSize(610, 430);
+        dialog.setLocationRelativeTo(suiteFrame);
+
+        JPanel choices = new JPanel(new GridBagLayout());
+        choices.setBorder(new EmptyBorder(10, 10, 0, 10));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        JComboBox<String> sourceCombo = new JComboBox<>(detectedFolders.toArray(new String[0]));
+        JComboBox<String> targetCombo = new JComboBox<>();
+        JTextArea preview = new JTextArea(12, 48);
+        preview.setEditable(false);
+        preview.setLineWrap(true);
+        preview.setWrapStyleWord(true);
+        JButton applyButton = new JButton("Aplicar cambio");
+        JButton cancelButton = new JButton("Cancelar");
+
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.weightx = 0;
+        choices.add(new JLabel("Carpeta origen:"), gbc);
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        choices.add(sourceCombo, gbc);
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.weightx = 0;
+        choices.add(new JLabel("Carpeta destino:"), gbc);
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        choices.add(targetCombo, gbc);
+
+        Runnable updatePreview = () -> {
+            String source = (String) sourceCombo.getSelectedItem();
+            String target = (String) targetCombo.getSelectedItem();
+            if (source == null || target == null) {
+                preview.setText("No hay otra carpeta disponible como destino.");
+                applyButton.setEnabled(false);
+                return;
+            }
+            Set<String> targetNames = new LinkedHashSet<>(variableManager.getVariableNamesInFolder(target));
+            VariableNames.FolderRemapResult result = VariableNames.remapFolderPlaceholders(
+                    requestText, source, target, targetNames);
+            preview.setText(formatRemapPreview(source, target, result));
+            preview.setCaretPosition(0);
+            applyButton.setEnabled(result.changed());
+        };
+
+        Runnable updateTargets = () -> {
+            String source = (String) sourceCombo.getSelectedItem();
+            Object previousTarget = targetCombo.getSelectedItem();
+            targetCombo.removeAllItems();
+            for (String folder : variableManager.getFolderNames()) {
+                if (!folder.equals(source)) targetCombo.addItem(folder);
+            }
+            if (previousTarget != null) targetCombo.setSelectedItem(previousTarget);
+            if (targetCombo.getSelectedIndex() < 0 && targetCombo.getItemCount() > 0) targetCombo.setSelectedIndex(0);
+            updatePreview.run();
+        };
+
+        sourceCombo.addActionListener(e -> updateTargets.run());
+        targetCombo.addActionListener(e -> updatePreview.run());
+        applyButton.addActionListener(e -> {
+            String source = (String) sourceCombo.getSelectedItem();
+            String target = (String) targetCombo.getSelectedItem();
+            if (source == null || target == null || source.equals(target)) {
+                JOptionPane.showMessageDialog(dialog, "Selecciona carpetas de origen y destino diferentes.",
+                        "Sin cambios", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            Set<String> targetNames = new LinkedHashSet<>(variableManager.getVariableNamesInFolder(target));
+            RequestRemapResult result = remapRequest(originalRequest, source, target, targetNames);
+            if (result.replacedVariables().isEmpty()) {
+                JOptionPane.showMessageDialog(dialog, "No hay variables coincidentes para sustituir.",
+                        "Sin cambios", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            editor.setRequest(result.request());
+            dialog.dispose();
+        });
+        cancelButton.addActionListener(e -> dialog.dispose());
+
+        JPanel previewPanel = new JPanel(new BorderLayout(5, 5));
+        previewPanel.setBorder(new EmptyBorder(5, 15, 5, 15));
+        previewPanel.add(new JLabel("Vista previa:"), BorderLayout.NORTH);
+        previewPanel.add(new JScrollPane(preview), BorderLayout.CENTER);
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 5));
+        buttons.add(applyButton);
+        buttons.add(cancelButton);
+
+        dialog.add(choices, BorderLayout.NORTH);
+        dialog.add(previewPanel, BorderLayout.CENTER);
+        dialog.add(buttons, BorderLayout.SOUTH);
+        updateTargets.run();
+        dialog.setVisible(true);
+    }
+
+    private String formatRemapPreview(String source, String target, VariableNames.FolderRemapResult result) {
+        StringBuilder text = new StringBuilder();
+        if (result.replacedVariables().isEmpty()) {
+            text.append("No hay variables coincidentes entre estas carpetas.");
+        } else {
+            text.append("Se sustituirán:\n");
+            for (String localName : result.replacedVariables()) {
+                text.append("  {{").append(source).append('.').append(localName).append("}}  \u2192  {{")
+                        .append(target).append('.').append(localName).append("}}\n");
+            }
+        }
+        if (!result.unmatchedVariables().isEmpty()) {
+            text.append("\nSe conservarán porque no existen en la carpeta destino:\n");
+            for (String localName : result.unmatchedVariables()) {
+                text.append("  {{").append(source).append('.').append(localName).append("}}\n");
+            }
+        }
+        return text.toString();
+    }
+
+    private String editableRequestText(HttpRequest request) {
+        StringBuilder text = new StringBuilder(request.path()).append('\n');
+        for (HttpHeader header : request.headers()) text.append(header.value()).append('\n');
+        if (request.bodyToString() != null) text.append(request.bodyToString());
+        return text.toString();
+    }
+
+    private RequestRemapResult remapRequest(HttpRequest request, String source, String target,
+                                             Set<String> targetLocalNames) {
+        Set<String> replaced = new LinkedHashSet<>();
+        Set<String> unmatched = new LinkedHashSet<>();
+        HttpRequest rewritten = request;
+
+        VariableNames.FolderRemapResult pathResult = VariableNames.remapFolderPlaceholders(
+                request.path(), source, target, targetLocalNames);
+        collectRemap(pathResult, replaced, unmatched);
+        if (pathResult.changed()) rewritten = rewritten.withPath(pathResult.text());
+
+        List<HttpHeader> newHeaders = new ArrayList<>();
+        boolean headersChanged = false;
+        for (HttpHeader header : request.headers()) {
+            VariableNames.FolderRemapResult headerResult = VariableNames.remapFolderPlaceholders(
+                    header.value(), source, target, targetLocalNames);
+            collectRemap(headerResult, replaced, unmatched);
+            if (headerResult.changed()) {
+                newHeaders.add(HttpHeader.httpHeader(header.name(), headerResult.text()));
+                headersChanged = true;
+            } else {
+                newHeaders.add(header);
+            }
+        }
+        if (headersChanged) {
+            rewritten = rewritten.withRemovedHeaders(rewritten.headers()).withAddedHeaders(newHeaders);
+        }
+
+        String body = request.bodyToString();
+        VariableNames.FolderRemapResult bodyResult = VariableNames.remapFolderPlaceholders(
+                body, source, target, targetLocalNames);
+        collectRemap(bodyResult, replaced, unmatched);
+        if (bodyResult.changed()) rewritten = rewritten.withBody(bodyResult.text());
+
+        return new RequestRemapResult(rewritten, List.copyOf(replaced), List.copyOf(unmatched));
+    }
+
+    private void collectRemap(VariableNames.FolderRemapResult result, Set<String> replaced, Set<String> unmatched) {
+        replaced.addAll(result.replacedVariables());
+        unmatched.addAll(result.unmatchedVariables());
+    }
+
+    private record RequestRemapResult(HttpRequest request, List<String> replacedVariables,
+                                      List<String> unmatchedVariables) {}
 
     private void showConfigDialog(ContextMenuEvent event) {
         MessageEditorHttpRequestResponse reqResp = event.messageEditorRequestResponse().get();

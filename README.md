@@ -33,6 +33,7 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 | 9 | **Request Editor Sub-Tab** | Adds a custom request editor tab next to Raw/Hex to display a sidebar listing all defined variables. Double-click any variable to insert its `{{placeholder}}` at the cursor position. |
 | 10 | **Zero Dependencies** | Built using the native Montoya API. No external libraries, 100% self-contained JAR. |
 | 11 | **Variable Folders** | Organize variables by user, session, or context. Folder variables use qualified placeholders such as `{{alice.token}}`, allowing `alice.token` and `bob.token` to coexist safely. |
+| 12 | **Request Folder Switching** | Replace every matching placeholder from one folder with its counterpart in another folder directly from a request's context menu. |
 
 ---
 
@@ -80,7 +81,15 @@ Folders can be expanded or collapsed. Drag variables to reorder them or move the
 6. The placeholder `{{jwt}}` will be immediately inserted at the cursor position.
 7. Click **Send** to transmit the request.
 
-### 4. Transparent 401/403 Session Recovery
+### 4. Switching a Request to Another Variable Folder
+1. Open a request containing grouped placeholders, for example `{{user1.jwe}}` and `{{user1.accountId}}`.
+2. Right-click anywhere in the request and choose **Cambiar carpeta de variables…**.
+3. Select `user1` as the source folder and `user2` as the target folder.
+4. Review the preview and click **Aplicar cambio**.
+
+Only variables with the same local name in the target folder are changed. For example, if `user2` contains both `jwe` and `accountId`, the request becomes `{{user2.jwe}}` and `{{user2.accountId}}`. A source placeholder without a counterpart in `user2` remains unchanged and is listed in the preview.
+
+### 5. Transparent 401/403 Session Recovery
 1. Use a placeholder variable (e.g. `{{jwt}}`) in any Repeater, Intruder, or Scanner request.
 2. If the session expires and the server returns an HTTP 401 or 403 status:
    - The extension intercepts the response before it is displayed.
@@ -88,7 +97,7 @@ Folders can be expanded or collapsed. Drag variables to reorder them or move the
    - It re-sends the request to the target server and displays the successful response transparently.
 3. You do not need to manually copy-paste or click anything; the request heals itself.
 
-### 5. Interactive Rule Updating
+### 6. Interactive Rule Updating
 1. If the API response structure changes, select your variable in the table.
 2. Click **Update Rule from Response...**.
 3. The plugin fetches a fresh response from the server and displays it in a raw viewer.
