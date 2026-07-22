@@ -1094,9 +1094,8 @@ public class VariableManager {
                     try {
                         refreshVariableSynchronously(name, rule);
                         SwingUtilities.invokeLater(() -> {
-                            String extractedValue = values.getOrDefault(name, "");
                             JOptionPane.showMessageDialog(mainPanel, 
-                                    "Variable '" + name + "' refreshed successfully to:\n" + extractedValue, 
+                                    "Variable '" + name + "' refreshed successfully.",
                                     "Refresh Success", JOptionPane.INFORMATION_MESSAGE);
                         });
                     } catch (Exception ex) {
