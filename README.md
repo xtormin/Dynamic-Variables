@@ -2,7 +2,7 @@
 
 > **Placeholder-based request variables for Repeater, Intruder, Scanner and Proxy with transparent auto-refreshing on session expiration (401/403) in Burp Suite.**
 
-Dynamic Variables is a Burp Suite extension that brings template variables and automatic session refreshes to your pentesting workflow. Define placeholders like `{{token}}` in Repeater, Intruder, Scanner, or Proxy requests (similar to how it is done in Postman), select text in HTTP responses to auto-generate regex extraction rules, and repeat login/refresh requests automatically in the background when your session expires.
+Dynamic Variables is a Burp Suite extension that brings template variables and automatic session refreshes to your pentesting workflow. Define placeholders like `{{token}}` in Repeater, Intruder, Scanner, or Proxy requests (similar to how it is done in Postman), optionally require a custom tag such as `{{dv:token}}` to avoid collisions with security payloads, select text in HTTP responses to auto-generate regex extraction rules, and repeat login/refresh requests automatically in the background when your session expires.
 
 ---
 
@@ -22,7 +22,7 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 
 | # | Feature | Description |
 |---|---------|-------------|
-| 1 | **Placeholder Substitution** | Scans outgoing requests in **Repeater**, **Intruder**, **Scanner**, and **Proxy** for `{{variable_name}}` templates and replaces them with their actual values in real-time. |
+| 1 | **Placeholder Substitution** | Scans outgoing requests in **Repeater**, **Intruder**, **Scanner**, and **Proxy** for active placeholder templates and replaces them with their actual values in real-time. |
 | 2 | **Regex Auto-Deduction** | Highlight any token (JWT, cookie, JWE, anti-CSRF) in a response, right-click, and select *Assign to Variable...*. The scanner auto-generates the matching regex for JSON keys, query params, or XML tags. |
 | 3 | **Variables Dashboard** | A centralized tab in Burp Suite to manage variable values, auto-extraction rules, and background request execution. Includes independent toggles to enable/disable substitution in Repeater, Intruder, Scanner, and Proxy. |
 | 4 | **Request Auto-Refreshing** | Saves the request template that generated your token (e.g., login or auth endpoint). Re-sends it instantly in a background thread from the tab to fetch a fresh token. |
@@ -30,11 +30,12 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 | 6 | **Transparent Session Recovery** | When a request containing variables receives an HTTP `401 Unauthorized` or `403 Forbidden` response, the extension automatically pauses the transaction, executes the refresh request, updates the variable, and re-sends the original request with the fresh token. |
 | 7 | **Interactive Rule Editor** | Click *Update Rule from Response...* to run the saved request and highlight the new token value directly in a raw HTTP response editor to auto-update the regex rule. |
 | 8 | **Repeater Integration** | Send your saved login/refresh requests directly to the Repeater tab for manual tweaking and testing. |
-| 9 | **Request Editor Sub-Tab** | Adds a custom request editor tab next to Raw/Hex to display a sidebar listing all defined variables. Double-click any variable to insert its `{{placeholder}}` at the cursor position. |
+| 9 | **Request Editor Sub-Tab** | Adds a custom request editor tab next to Raw/Hex to display a sidebar listing all defined variables. Double-click any variable to insert a placeholder using the active syntax. |
 | 10 | **Zero Dependencies** | Built using the native Montoya API. No external libraries, 100% self-contained JAR. |
 | 11 | **Variable Folders** | Organize variables by user, session, or context. Folder variables use qualified placeholders such as `{{alice.token}}`, allowing `alice.token` and `bob.token` to coexist safely. |
 | 12 | **Request Folder Switching** | Replace every matching placeholder from one folder with its counterpart in another folder directly from a request's context menu. |
 | 13 | **Materialize Repeater Variables** | Preview and permanently replace all known placeholders in an editable Repeater request with their current text values for direct testing without variables. |
+| 14 | **Configurable Placeholder Tag** | Optionally require a custom tag such as `dv` so only `{{dv:variable_name}}` is substituted and unrelated `{{...}}` pentesting payloads remain untouched. |
 
 ---
 
@@ -61,6 +62,17 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 6. In Repeater, reference an ungrouped variable as `{{api_key}}` or a grouped variable as `{{alice.token}}`. It will be substituted when the request is sent.
 
 Folders can be expanded or collapsed. Drag variables to reorder them or move them between folders; because moving changes the placeholder, the extension shows the old and new placeholders before applying the move. Right-click a variable to rename it, copy its placeholder, move it, or delete it.
+
+#### Optional: Require a Placeholder Tag
+
+The default syntax remains `{{token}}`, preserving existing projects. To distinguish extension variables from SSTI or other payloads:
+
+1. Click **Configuration...** in the Dynamic Variables tab.
+2. Enable **Use a tag in variable placeholders**.
+3. Enter a tag such as `dv` or `pentest` and review the example.
+4. Save the configuration.
+
+With the tag `dv`, use `{{dv:token}}` or `{{dv:alice.token}}`. Only placeholders with that exact, case-sensitive tag are substituted; `{{token}}`, `{{7*7}}`, and placeholders using another tag are transmitted unchanged. Existing requests are not rewritten automatically. Copying or inserting a variable uses the currently active syntax.
 
 ### 2. Auto-Extract Variables from Responses
 1. Send a request that returns a token in the response (e.g., login request).

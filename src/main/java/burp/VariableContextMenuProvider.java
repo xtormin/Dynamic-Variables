@@ -76,13 +76,15 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
 
     private boolean hasAnyPlaceholder(HttpRequest request) {
         return VariableNames.materializePlaceholders(
-                editableRequestText(request), variableManager.getVariables()).hasPlaceholders();
+                editableRequestText(request), variableManager.getVariables(),
+                variableManager.getPlaceholderStyle()).hasPlaceholders();
     }
 
     private void showMaterializationDialog(MessageEditorHttpRequestResponse editor) {
         HttpRequest originalRequest = editor.requestResponse().request();
         Map<String, String> variables = variableManager.getVariables();
-        MaterializedRequestResult result = materializeRequest(originalRequest, variables);
+        VariableNames.PlaceholderStyle placeholderStyle = variableManager.getPlaceholderStyle();
+        MaterializedRequestResult result = materializeRequest(originalRequest, variables, placeholderStyle);
 
         Frame suiteFrame = api.userInterface().swingUtils().suiteFrame();
         JDialog dialog = new JDialog(suiteFrame, "Sustituir variables por sus valores",
@@ -95,7 +97,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         preview.setEditable(false);
         preview.setLineWrap(true);
         preview.setWrapStyleWord(true);
-        preview.setText(formatMaterializationPreview(result, variables));
+        preview.setText(formatMaterializationPreview(result, variables, placeholderStyle));
         preview.setCaretPosition(0);
 
         JPanel previewPanel = new JPanel(new BorderLayout(5, 5));
@@ -122,14 +124,15 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         dialog.setVisible(true);
     }
 
-    private String formatMaterializationPreview(MaterializedRequestResult result, Map<String, String> variables) {
+    private String formatMaterializationPreview(MaterializedRequestResult result, Map<String, String> variables,
+                                                VariableNames.PlaceholderStyle placeholderStyle) {
         StringBuilder text = new StringBuilder();
         if (result.replacedVariables().isEmpty()) {
             text.append("No hay variables definidas que se puedan sustituir.\n");
         } else {
             text.append("Se sustituirán:\n");
             for (String variableName : result.replacedVariables()) {
-                text.append("  {{").append(variableName).append("}}  \u2192  ");
+                text.append("  ").append(VariableNames.placeholder(variableName, placeholderStyle)).append("  \u2192  ");
                 String value = variables.get(variableName);
                 if (value.isEmpty()) {
                     text.append("(valor vacío)");
@@ -143,7 +146,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         if (!result.unresolvedVariables().isEmpty()) {
             text.append("\nSe conservarán porque no están definidas:\n");
             for (String variableName : result.unresolvedVariables()) {
-                text.append("  {{").append(variableName).append("}}\n");
+                text.append("  ").append(VariableNames.placeholder(variableName, placeholderStyle)).append('\n');
             }
         }
 
@@ -151,13 +154,14 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         return text.toString();
     }
 
-    private MaterializedRequestResult materializeRequest(HttpRequest originalRequest, Map<String, String> variables) {
+    private MaterializedRequestResult materializeRequest(HttpRequest originalRequest, Map<String, String> variables,
+                                                          VariableNames.PlaceholderStyle placeholderStyle) {
         Set<String> replaced = new LinkedHashSet<>();
         Set<String> unresolved = new LinkedHashSet<>();
         HttpRequest rewritten = originalRequest;
 
         VariableNames.MaterializationResult pathResult = VariableNames.materializePlaceholders(
-                originalRequest.path(), variables);
+                originalRequest.path(), variables, placeholderStyle);
         collectMaterialization(pathResult, replaced, unresolved);
         if (!Objects.equals(originalRequest.path(), pathResult.text())) rewritten = rewritten.withPath(pathResult.text());
 
@@ -165,7 +169,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         boolean headersChanged = false;
         for (HttpHeader header : originalRequest.headers()) {
             VariableNames.MaterializationResult headerResult = VariableNames.materializePlaceholders(
-                    header.value(), variables);
+                    header.value(), variables, placeholderStyle);
             collectMaterialization(headerResult, replaced, unresolved);
             if (!Objects.equals(header.value(), headerResult.text())) {
                 newHeaders.add(HttpHeader.httpHeader(header.name(), headerResult.text()));
@@ -179,7 +183,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         }
 
         VariableNames.MaterializationResult bodyResult = VariableNames.materializePlaceholders(
-                originalRequest.bodyToString(), variables);
+                originalRequest.bodyToString(), variables, placeholderStyle);
         collectMaterialization(bodyResult, replaced, unresolved);
         if (!Objects.equals(originalRequest.bodyToString(), bodyResult.text())) {
             rewritten = rewritten.withBody(bodyResult.text());
@@ -199,12 +203,14 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
 
     private boolean hasUsefulFolderRemap(HttpRequest request) {
         String requestText = editableRequestText(request);
-        List<String> sourceFolders = VariableNames.detectPlaceholderFolders(requestText);
+        VariableNames.PlaceholderStyle placeholderStyle = variableManager.getPlaceholderStyle();
+        List<String> sourceFolders = VariableNames.detectPlaceholderFolders(requestText, placeholderStyle);
         for (String sourceFolder : sourceFolders) {
             for (String targetFolder : variableManager.getFolderNames()) {
                 if (sourceFolder.equals(targetFolder)) continue;
                 Set<String> targets = new LinkedHashSet<>(variableManager.getVariableNamesInFolder(targetFolder));
-                if (VariableNames.remapFolderPlaceholders(requestText, sourceFolder, targetFolder, targets).changed()) {
+                if (VariableNames.remapFolderPlaceholders(
+                        requestText, sourceFolder, targetFolder, targets, placeholderStyle).changed()) {
                     return true;
                 }
             }
@@ -215,7 +221,8 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
     private void showFolderRemapDialog(MessageEditorHttpRequestResponse editor) {
         HttpRequest originalRequest = editor.requestResponse().request();
         String requestText = editableRequestText(originalRequest);
-        List<String> detectedFolders = VariableNames.detectPlaceholderFolders(requestText);
+        VariableNames.PlaceholderStyle placeholderStyle = variableManager.getPlaceholderStyle();
+        List<String> detectedFolders = VariableNames.detectPlaceholderFolders(requestText, placeholderStyle);
         if (detectedFolders.isEmpty()) {
             JOptionPane.showMessageDialog(api.userInterface().swingUtils().suiteFrame(),
                     "La petición no contiene placeholders con carpeta.", "Cambiar carpeta de variables",
@@ -269,8 +276,8 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
             }
             Set<String> targetNames = new LinkedHashSet<>(variableManager.getVariableNamesInFolder(target));
             VariableNames.FolderRemapResult result = VariableNames.remapFolderPlaceholders(
-                    requestText, source, target, targetNames);
-            preview.setText(formatRemapPreview(source, target, result));
+                    requestText, source, target, targetNames, placeholderStyle);
+            preview.setText(formatRemapPreview(source, target, result, placeholderStyle));
             preview.setCaretPosition(0);
             applyButton.setEnabled(result.changed());
         };
@@ -298,7 +305,8 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
                 return;
             }
             Set<String> targetNames = new LinkedHashSet<>(variableManager.getVariableNamesInFolder(target));
-            RequestRemapResult result = remapRequest(originalRequest, source, target, targetNames);
+            RequestRemapResult result = remapRequest(
+                    originalRequest, source, target, targetNames, placeholderStyle);
             if (result.replacedVariables().isEmpty()) {
                 JOptionPane.showMessageDialog(dialog, "No hay variables coincidentes para sustituir.",
                         "Sin cambios", JOptionPane.INFORMATION_MESSAGE);
@@ -325,21 +333,24 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         dialog.setVisible(true);
     }
 
-    private String formatRemapPreview(String source, String target, VariableNames.FolderRemapResult result) {
+    private String formatRemapPreview(String source, String target, VariableNames.FolderRemapResult result,
+                                      VariableNames.PlaceholderStyle placeholderStyle) {
         StringBuilder text = new StringBuilder();
         if (result.replacedVariables().isEmpty()) {
             text.append("No hay variables coincidentes entre estas carpetas.");
         } else {
             text.append("Se sustituirán:\n");
             for (String localName : result.replacedVariables()) {
-                text.append("  {{").append(source).append('.').append(localName).append("}}  \u2192  {{")
-                        .append(target).append('.').append(localName).append("}}\n");
+                text.append("  ").append(VariableNames.placeholder(source + "." + localName, placeholderStyle))
+                        .append("  \u2192  ").append(VariableNames.placeholder(
+                                target + "." + localName, placeholderStyle)).append('\n');
             }
         }
         if (!result.unmatchedVariables().isEmpty()) {
             text.append("\nSe conservarán porque no existen en la carpeta destino:\n");
             for (String localName : result.unmatchedVariables()) {
-                text.append("  {{").append(source).append('.').append(localName).append("}}\n");
+                text.append("  ").append(VariableNames.placeholder(
+                        source + "." + localName, placeholderStyle)).append('\n');
             }
         }
         return text.toString();
@@ -353,13 +364,14 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
     }
 
     private RequestRemapResult remapRequest(HttpRequest request, String source, String target,
-                                             Set<String> targetLocalNames) {
+                                             Set<String> targetLocalNames,
+                                             VariableNames.PlaceholderStyle placeholderStyle) {
         Set<String> replaced = new LinkedHashSet<>();
         Set<String> unmatched = new LinkedHashSet<>();
         HttpRequest rewritten = request;
 
         VariableNames.FolderRemapResult pathResult = VariableNames.remapFolderPlaceholders(
-                request.path(), source, target, targetLocalNames);
+                request.path(), source, target, targetLocalNames, placeholderStyle);
         collectRemap(pathResult, replaced, unmatched);
         if (pathResult.changed()) rewritten = rewritten.withPath(pathResult.text());
 
@@ -367,7 +379,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         boolean headersChanged = false;
         for (HttpHeader header : request.headers()) {
             VariableNames.FolderRemapResult headerResult = VariableNames.remapFolderPlaceholders(
-                    header.value(), source, target, targetLocalNames);
+                    header.value(), source, target, targetLocalNames, placeholderStyle);
             collectRemap(headerResult, replaced, unmatched);
             if (headerResult.changed()) {
                 newHeaders.add(HttpHeader.httpHeader(header.name(), headerResult.text()));
@@ -382,7 +394,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
 
         String body = request.bodyToString();
         VariableNames.FolderRemapResult bodyResult = VariableNames.remapFolderPlaceholders(
-                body, source, target, targetLocalNames);
+                body, source, target, targetLocalNames, placeholderStyle);
         collectRemap(bodyResult, replaced, unmatched);
         if (bodyResult.changed()) rewritten = rewritten.withBody(bodyResult.text());
 

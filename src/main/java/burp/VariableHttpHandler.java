@@ -10,9 +10,9 @@ import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
@@ -25,6 +25,7 @@ public class VariableHttpHandler implements HttpHandler {
     // Thread-safe caches to trace requests and variables across interception stages
     private final Map<Integer, HttpRequest> originalTemplates = new ConcurrentHashMap<>();
     private final Map<Integer, Set<String>> requestVariablesUsed = new ConcurrentHashMap<>();
+    private final Map<Integer, VariableNames.PlaceholderStyle> requestPlaceholderStyles = new ConcurrentHashMap<>();
 
     public VariableHttpHandler(MontoyaApi api, VariableManager variableManager) {
         this.api = api;
@@ -50,31 +51,9 @@ public class VariableHttpHandler implements HttpHandler {
         if (isEnabled) {
             Map<String, String> variables = variableManager.getVariables();
             if (!variables.isEmpty()) {
-                // Check which variables are present in the request template
-                Set<String> variablesUsed = new HashSet<>();
-                for (String name : variables.keySet()) {
-                    String placeholder = "{{" + name + "}}";
-                    boolean used = false;
-                    
-                    if (requestToBeSent.path().contains(placeholder)) {
-                        used = true;
-                    }
-                    if (!used) {
-                        for (HttpHeader h : requestToBeSent.headers()) {
-                            if (h.value().contains(placeholder)) {
-                                used = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (!used && requestToBeSent.bodyToString() != null && requestToBeSent.bodyToString().contains(placeholder)) {
-                        used = true;
-                    }
-
-                    if (used) {
-                        variablesUsed.add(name);
-                    }
-                }
+                VariableNames.PlaceholderStyle placeholderStyle = variableManager.getPlaceholderStyle();
+                HttpRewriteResult rewriteResult = rewriteRequest(requestToBeSent, variables, placeholderStyle);
+                Set<String> variablesUsed = Set.copyOf(rewriteResult.variablesUsed());
 
                 // If placeholders were used, save the template and variable names for response interception
                 if (!variablesUsed.isEmpty()) {
@@ -84,45 +63,8 @@ public class VariableHttpHandler implements HttpHandler {
                     HttpRequest template = HttpRequest.httpRequest(requestToBeSent.httpService(), requestToBeSent.toByteArray());
                     originalTemplates.put(messageId, template);
                     requestVariablesUsed.put(messageId, variablesUsed);
-
-                    // Perform replacement
-                    HttpRequest request = requestToBeSent;
-
-                    // 1. Replace in Path/URL
-                    String path = request.path();
-                    String newPath = replacePlaceholders(path, variables);
-                    if (!path.equals(newPath)) {
-                        request = request.withPath(newPath);
-                    }
-
-                    // 2. Replace in Headers
-                    List<HttpHeader> headers = request.headers();
-                    List<HttpHeader> newHeaders = new ArrayList<>();
-                    boolean headersModified = false;
-                    for (HttpHeader header : headers) {
-                        String value = header.value();
-                        String newValue = replacePlaceholders(value, variables);
-                        if (!value.equals(newValue)) {
-                            newHeaders.add(HttpHeader.httpHeader(header.name(), newValue));
-                            headersModified = true;
-                        } else {
-                            newHeaders.add(header);
-                        }
-                    }
-                    if (headersModified) {
-                        request = request.withRemovedHeaders(request.headers()).withAddedHeaders(newHeaders);
-                    }
-
-                    // 3. Replace in Body
-                    String body = request.bodyToString();
-                    if (body != null && !body.isEmpty()) {
-                        String newBody = replacePlaceholders(body, variables);
-                        if (!body.equals(newBody)) {
-                            request = request.withBody(newBody);
-                        }
-                    }
-
-                    return RequestToBeSentAction.continueWith(request);
+                    requestPlaceholderStyles.put(messageId, placeholderStyle);
+                    return RequestToBeSentAction.continueWith(rewriteResult.request());
                 }
             }
         }
@@ -136,6 +78,8 @@ public class VariableHttpHandler implements HttpHandler {
         // Clean up maps to prevent memory leaks in large projects
         HttpRequest originalTemplate = originalTemplates.remove(messageId);
         Set<String> varsUsed = requestVariablesUsed.remove(messageId);
+        VariableNames.PlaceholderStyle placeholderStyle = requestPlaceholderStyles.remove(messageId);
+        if (placeholderStyle == null) placeholderStyle = variableManager.getPlaceholderStyle();
 
         // 1. Always run auto-extraction on normal responses first (if enabled)
         if (variableManager.isExtractionEnabled()) {
@@ -173,41 +117,8 @@ public class VariableHttpHandler implements HttpHandler {
             if (refreshedAny) {
                 // Re-inject the new variable values into the original template request
                 Map<String, String> variables = variableManager.getVariables();
-                HttpRequest refreshedRequest = originalTemplate;
-                
-                // 1. Path replacement
-                String path = refreshedRequest.path();
-                String newPath = replacePlaceholders(path, variables);
-                if (!path.equals(newPath)) {
-                    refreshedRequest = refreshedRequest.withPath(newPath);
-                }
-
-                // 2. Headers replacement
-                List<HttpHeader> headers = refreshedRequest.headers();
-                List<HttpHeader> newHeaders = new ArrayList<>();
-                boolean headersModified = false;
-                for (HttpHeader header : headers) {
-                    String value = header.value();
-                    String newValue = replacePlaceholders(value, variables);
-                    if (!value.equals(newValue)) {
-                        newHeaders.add(HttpHeader.httpHeader(header.name(), newValue));
-                        headersModified = true;
-                    } else {
-                        newHeaders.add(header);
-                    }
-                }
-                if (headersModified) {
-                    refreshedRequest = refreshedRequest.withRemovedHeaders(refreshedRequest.headers()).withAddedHeaders(newHeaders);
-                }
-
-                // 3. Body replacement
-                String body = refreshedRequest.bodyToString();
-                if (body != null && !body.isEmpty()) {
-                    String newBody = replacePlaceholders(body, variables);
-                    if (!body.equals(newBody)) {
-                        refreshedRequest = refreshedRequest.withBody(newBody);
-                    }
-                }
+                HttpRequest refreshedRequest = rewriteRequest(
+                        originalTemplate, variables, placeholderStyle).request();
 
                 try {
                     api.logging().logToOutput("Re-sending refreshed request for message " + messageId + "...");
@@ -368,7 +279,52 @@ public class VariableHttpHandler implements HttpHandler {
         return body == null ? "" : body;
     }
 
+    private HttpRewriteResult rewriteRequest(HttpRequest request, Map<String, String> variables,
+                                             VariableNames.PlaceholderStyle placeholderStyle) {
+        List<VariableRequestRewriter.HeaderValue> headerValues = request.headers().stream()
+                .map(header -> new VariableRequestRewriter.HeaderValue(header.name(), header.value()))
+                .toList();
+        VariableRequestRewriter.RewriteResult rewriteResult = VariableRequestRewriter.rewrite(
+                new VariableRequestRewriter.RequestParts(request.path(), headerValues, request.bodyToString()),
+                variables, placeholderStyle);
+
+        VariableRequestRewriter.RequestParts parts = rewriteResult.request();
+        HttpRequest rewritten = request;
+        if (!Objects.equals(request.path(), parts.path())) {
+            rewritten = rewritten.withPath(parts.path());
+        }
+
+        boolean headersChanged = false;
+        List<HttpHeader> newHeaders = new ArrayList<>(parts.headers().size());
+        for (int index = 0; index < parts.headers().size(); index++) {
+            HttpHeader originalHeader = request.headers().get(index);
+            VariableRequestRewriter.HeaderValue rewrittenHeader = parts.headers().get(index);
+            if (!Objects.equals(originalHeader.name(), rewrittenHeader.name())
+                    || !Objects.equals(originalHeader.value(), rewrittenHeader.value())) {
+                newHeaders.add(HttpHeader.httpHeader(rewrittenHeader.name(), rewrittenHeader.value()));
+                headersChanged = true;
+            } else {
+                newHeaders.add(originalHeader);
+            }
+        }
+        if (headersChanged) {
+            rewritten = rewritten.withRemovedHeaders(rewritten.headers()).withAddedHeaders(newHeaders);
+        }
+
+        if (!Objects.equals(request.bodyToString(), parts.body())) {
+            rewritten = rewritten.withBody(parts.body());
+        }
+        return new HttpRewriteResult(rewritten, rewriteResult.variablesUsed());
+    }
+
+    private record HttpRewriteResult(HttpRequest request, List<String> variablesUsed) {}
+
     private String replacePlaceholders(String text, Map<String, String> variables) {
-        return VariableNames.replacePlaceholders(text, variables);
+        return replacePlaceholders(text, variables, variableManager.getPlaceholderStyle());
+    }
+
+    private String replacePlaceholders(String text, Map<String, String> variables,
+                                       VariableNames.PlaceholderStyle placeholderStyle) {
+        return VariableNames.replacePlaceholders(text, variables, placeholderStyle);
     }
 }

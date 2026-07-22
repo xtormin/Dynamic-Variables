@@ -30,6 +30,7 @@ public class DynamicVariables implements BurpExtension {
         });
 
         api.logging().logToOutput("Dynamic Variables Extension loaded successfully!");
-        api.logging().logToOutput("Define variables in the 'Dynamic Variables' tab and use {{variable_name}} in Repeater requests.");
+        api.logging().logToOutput("Define variables in the 'Dynamic Variables' tab and use "
+                + variableManager.placeholderFor("variable_name") + " in Repeater requests.");
     }
 }

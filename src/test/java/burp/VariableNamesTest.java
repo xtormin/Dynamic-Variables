@@ -2,6 +2,7 @@ package burp;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -23,6 +24,79 @@ class VariableNamesTest {
         assertFalse(VariableNames.isValidComponent(null));
         assertFalse(VariableNames.isValidComponent("  "));
         assertFalse(VariableNames.isValidComponent("alice.token"));
+    }
+
+    @Test
+    void validatesPlaceholderTags() {
+        assertTrue(VariableNames.isValidTag("dv"));
+        assertTrue(VariableNames.isValidTag("pentest_2"));
+        assertTrue(VariableNames.isValidTag("team-blue"));
+        assertFalse(VariableNames.isValidTag(null));
+        assertFalse(VariableNames.isValidTag(""));
+        assertFalse(VariableNames.isValidTag("2dv"));
+        assertFalse(VariableNames.isValidTag("dv:prod"));
+        assertFalse(VariableNames.isValidTag("dv.prod"));
+        assertFalse(VariableNames.isValidTag("dv prod"));
+        assertFalse(VariableNames.isValidTag("{{dv}}"));
+    }
+
+    @Test
+    void formatsTaggedAndUntaggedPlaceholders() {
+        assertEquals("{{token}}", VariableNames.placeholder(
+                "token", VariableNames.PlaceholderStyle.untagged()));
+        assertEquals("{{dv:alice.token}}", VariableNames.placeholder(
+                "alice.token", new VariableNames.PlaceholderStyle(true, "dv")));
+    }
+
+    @Test
+    void taggedModeOnlyReplacesTheExactConfiguredTag() {
+        VariableNames.PlaceholderStyle style = new VariableNames.PlaceholderStyle(true, "dv");
+        String request = "active={{dv:token}} untagged={{token}} other={{other:token}} ssti={{7*7}}";
+
+        assertEquals("active=secret untagged={{token}} other={{other:token}} ssti={{7*7}}",
+                VariableNames.replacePlaceholders(request, Map.of("token", "secret"), style));
+    }
+
+    @Test
+    void disabledTaggingKeepsLegacyReplacementBehavior() {
+        VariableNames.PlaceholderStyle style = new VariableNames.PlaceholderStyle(false, "dv");
+        String request = "legacy={{token}} tagged={{dv:token}}";
+
+        assertEquals("legacy=secret tagged={{dv:token}}",
+                VariableNames.replacePlaceholders(request, Map.of("token", "secret"), style));
+    }
+
+    @Test
+    void customTagsAreCaseSensitive() {
+        VariableNames.PlaceholderStyle style = new VariableNames.PlaceholderStyle(true, "Pentest");
+        String request = "a={{Pentest:id}}&b={{pentest:id}}";
+
+        assertEquals("a=42&b={{pentest:id}}",
+                VariableNames.replacePlaceholders(request, Map.of("id", "42"), style));
+    }
+
+    @Test
+    void placeholderStyleTrimsTagsAndRejectsInvalidEnabledTags() {
+        VariableNames.PlaceholderStyle trimmed = new VariableNames.PlaceholderStyle(true, "  dv  ");
+
+        assertEquals("dv", trimmed.tag());
+        assertThrows(IllegalArgumentException.class,
+                () -> new VariableNames.PlaceholderStyle(true, "bad:tag"));
+        assertThrows(IllegalArgumentException.class,
+                () -> new VariableNames.PlaceholderStyle(true, ""));
+    }
+
+    @Test
+    void taggedMaterializationOnlyReportsUnknownVariablesUsingTheActiveTag() {
+        VariableNames.PlaceholderStyle style = new VariableNames.PlaceholderStyle(true, "dv");
+
+        VariableNames.MaterializationResult result = VariableNames.materializePlaceholders(
+                "{{dv:known}} {{dv:missing}} {{missing}} {{qa:missing}}",
+                Map.of("known", "value"), style);
+
+        assertEquals("value {{dv:missing}} {{missing}} {{qa:missing}}", result.text());
+        assertEquals(List.of("known"), result.replacedVariables());
+        assertEquals(List.of("missing"), result.unresolvedVariables());
     }
 
     @Test
@@ -142,5 +216,18 @@ class VariableNamesTest {
                 "{{user1.id}}", "user1", "user1", Set.of("id")).changed());
         assertFalse(VariableNames.remapFolderPlaceholders(
                 "{{user1.id}}", "user1", "user2", Set.of("accountId")).changed());
+    }
+
+    @Test
+    void detectsAndRemapsFoldersUsingTaggedSyntaxOnly() {
+        VariableNames.PlaceholderStyle style = new VariableNames.PlaceholderStyle(true, "dv");
+        String text = "{{dv:user1.id}} {{user1.id}} {{other:user1.id}}";
+
+        assertEquals(java.util.List.of("user1"), VariableNames.detectPlaceholderFolders(text, style));
+        VariableNames.FolderRemapResult result = VariableNames.remapFolderPlaceholders(
+                text, "user1", "user2", Set.of("id"), style);
+
+        assertEquals("{{dv:user2.id}} {{user1.id}} {{other:user1.id}}", result.text());
+        assertEquals(java.util.List.of("id"), result.replacedVariables());
     }
 }

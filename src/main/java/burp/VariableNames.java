@@ -4,12 +4,26 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class VariableNames {
-    private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{([^{}]+)}}");
-    private static final Pattern QUALIFIED_PLACEHOLDER = Pattern.compile("\\{\\{([^{}.]+)\\.([^{}.]+)}}");
+    private static final Pattern TAG = Pattern.compile("[A-Za-z][A-Za-z0-9_-]*");
+    private static final Map<PlaceholderStyle, Pattern> PLACEHOLDER_PATTERNS = new ConcurrentHashMap<>();
+
+    record PlaceholderStyle(boolean tagEnabled, String tag) {
+        PlaceholderStyle {
+            tag = tag == null ? "" : tag.trim();
+            if (tagEnabled && !isValidTag(tag)) {
+                throw new IllegalArgumentException("Invalid placeholder tag: " + tag);
+            }
+        }
+
+        static PlaceholderStyle untagged() {
+            return new PlaceholderStyle(false, "");
+        }
+    }
 
     private VariableNames() {}
 
@@ -33,21 +47,40 @@ final class VariableNames {
         return name != null && !name.trim().isEmpty() && !name.contains(".");
     }
 
+    static boolean isValidTag(String tag) {
+        return tag != null && TAG.matcher(tag).matches();
+    }
+
     static String qualify(String folder, String variable) {
         return folder == null || folder.isEmpty() ? variable : folder + "." + variable;
     }
 
+    static String placeholder(String variableName, PlaceholderStyle style) {
+        PlaceholderStyle activeStyle = style == null ? PlaceholderStyle.untagged() : style;
+        String prefix = activeStyle.tagEnabled() ? activeStyle.tag() + ":" : "";
+        return "{{" + prefix + variableName + "}}";
+    }
+
     static String replacePlaceholders(String text, Map<String, String> variables) {
-        return materializePlaceholders(text, variables).text();
+        return replacePlaceholders(text, variables, PlaceholderStyle.untagged());
+    }
+
+    static String replacePlaceholders(String text, Map<String, String> variables, PlaceholderStyle style) {
+        return materializePlaceholders(text, variables, style).text();
     }
 
     static MaterializationResult materializePlaceholders(String text, Map<String, String> variables) {
+        return materializePlaceholders(text, variables, PlaceholderStyle.untagged());
+    }
+
+    static MaterializationResult materializePlaceholders(String text, Map<String, String> variables,
+                                                          PlaceholderStyle style) {
         if (text == null || text.isEmpty()) {
             return new MaterializationResult(text, List.of(), List.of());
         }
 
         Map<String, String> availableVariables = variables == null ? Map.of() : variables;
-        Matcher matcher = PLACEHOLDER.matcher(text);
+        Matcher matcher = placeholderPattern(style).matcher(text);
         StringBuffer rewritten = new StringBuffer();
         Set<String> replaced = new LinkedHashSet<>();
         Set<String> unresolved = new LinkedHashSet<>();
@@ -69,32 +102,55 @@ final class VariableNames {
     }
 
     static List<String> detectPlaceholderFolders(String text) {
+        return detectPlaceholderFolders(text, PlaceholderStyle.untagged());
+    }
+
+    static List<String> detectPlaceholderFolders(String text, PlaceholderStyle style) {
         if (text == null || text.isEmpty()) return List.of();
         Set<String> folders = new LinkedHashSet<>();
-        Matcher matcher = QUALIFIED_PLACEHOLDER.matcher(text);
-        while (matcher.find()) folders.add(matcher.group(1));
+        Matcher matcher = placeholderPattern(style).matcher(text);
+        while (matcher.find()) {
+            String variableName = matcher.group(1);
+            int separator = variableName.indexOf('.');
+            if (separator > 0 && separator == variableName.lastIndexOf('.')
+                    && separator < variableName.length() - 1) {
+                folders.add(variableName.substring(0, separator));
+            }
+        }
         return List.copyOf(folders);
     }
 
     static FolderRemapResult remapFolderPlaceholders(String text, String sourceFolder, String targetFolder,
                                                        Set<String> targetLocalNames) {
+        return remapFolderPlaceholders(text, sourceFolder, targetFolder, targetLocalNames,
+                PlaceholderStyle.untagged());
+    }
+
+    static FolderRemapResult remapFolderPlaceholders(String text, String sourceFolder, String targetFolder,
+                                                       Set<String> targetLocalNames, PlaceholderStyle style) {
         if (text == null || text.isEmpty() || sourceFolder == null || targetFolder == null
                 || sourceFolder.equals(targetFolder)) {
             return new FolderRemapResult(text, List.of(), List.of());
         }
 
         Set<String> availableTargets = targetLocalNames == null ? Set.of() : targetLocalNames;
-        Pattern sourcePlaceholder = Pattern.compile("\\{\\{" + Pattern.quote(sourceFolder)
-                + "\\.([^{}.]+)}}");
-        Matcher matcher = sourcePlaceholder.matcher(text);
+        Matcher matcher = placeholderPattern(style).matcher(text);
         StringBuffer rewritten = new StringBuffer();
         Set<String> replaced = new LinkedHashSet<>();
         Set<String> unmatched = new LinkedHashSet<>();
 
         while (matcher.find()) {
-            String localName = matcher.group(1);
+            String qualifiedName = matcher.group(1);
+            String sourcePrefix = sourceFolder + ".";
+            if (!qualifiedName.startsWith(sourcePrefix)
+                    || qualifiedName.indexOf('.', sourcePrefix.length()) >= 0) {
+                matcher.appendReplacement(rewritten, Matcher.quoteReplacement(matcher.group()));
+                continue;
+            }
+            String localName = qualifiedName.substring(sourcePrefix.length());
             if (availableTargets.contains(localName)) {
-                matcher.appendReplacement(rewritten, Matcher.quoteReplacement("{{" + targetFolder + "." + localName + "}}"));
+                matcher.appendReplacement(rewritten, Matcher.quoteReplacement(
+                        placeholder(targetFolder + "." + localName, style)));
                 replaced.add(localName);
             } else {
                 matcher.appendReplacement(rewritten, Matcher.quoteReplacement(matcher.group()));
@@ -104,5 +160,14 @@ final class VariableNames {
         matcher.appendTail(rewritten);
 
         return new FolderRemapResult(rewritten.toString(), List.copyOf(replaced), List.copyOf(unmatched));
+    }
+
+    private static Pattern placeholderPattern(PlaceholderStyle style) {
+        PlaceholderStyle activeStyle = style == null ? PlaceholderStyle.untagged() : style;
+        PlaceholderStyle cacheKey = activeStyle.tagEnabled() ? activeStyle : PlaceholderStyle.untagged();
+        return PLACEHOLDER_PATTERNS.computeIfAbsent(cacheKey, key -> {
+            String prefix = key.tagEnabled() ? Pattern.quote(key.tag() + ":") : "";
+            return Pattern.compile("\\{\\{" + prefix + "([^{}]+)}}");
+        });
     }
 }
