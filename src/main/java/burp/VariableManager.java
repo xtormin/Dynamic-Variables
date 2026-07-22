@@ -15,7 +15,11 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
 import java.awt.*;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.Transferable;
+import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.datatransfer.StringSelection;
+import java.io.IOException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -284,6 +288,10 @@ public class VariableManager {
         tableModel = new VariablesTableModel();
         variablesTable = new JTable(tableModel);
         variablesTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        variablesTable.setDragEnabled(true);
+        variablesTable.setDropMode(DropMode.INSERT_ROWS);
+        variablesTable.setTransferHandler(new VariableRowTransferHandler());
+        variablesTable.setToolTipText("Drag a row to reorder variables.");
         variablesTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 int selectedRow = variablesTable.getSelectedRow();
@@ -1346,6 +1354,99 @@ public class VariableManager {
             } catch (Exception e) {
                 api.logging().logToError("Failed to load variables preferences: " + e.getMessage());
             }
+        }
+    }
+
+    private void moveVariable(int sourceRow, int dropRow) {
+        int targetRow;
+        synchronized (lock) {
+            if (sourceRow < 0 || sourceRow >= variableNames.size()
+                    || dropRow < 0 || dropRow > variableNames.size()) {
+                return;
+            }
+
+            targetRow = dropRow;
+            if (sourceRow < targetRow) {
+                targetRow--;
+            }
+            if (sourceRow == targetRow) {
+                return;
+            }
+
+            String variableName = variableNames.remove(sourceRow);
+            variableNames.add(targetRow, variableName);
+            savePreferences();
+        }
+
+        tableModel.fireTableDataChanged();
+        variablesTable.setRowSelectionInterval(targetRow, targetRow);
+        variablesTable.scrollRectToVisible(variablesTable.getCellRect(targetRow, 0, true));
+    }
+
+    private class VariableRowTransferHandler extends TransferHandler {
+        private final DataFlavor rowFlavor = new DataFlavor(Integer.class, "Variable row");
+
+        @Override
+        protected Transferable createTransferable(JComponent component) {
+            int sourceRow = variablesTable.getSelectedRow();
+            return sourceRow < 0 ? null : new VariableRowTransferable(sourceRow, rowFlavor);
+        }
+
+        @Override
+        public int getSourceActions(JComponent component) {
+            return MOVE;
+        }
+
+        @Override
+        public boolean canImport(TransferSupport support) {
+            return support.getComponent() == variablesTable
+                    && support.isDrop()
+                    && support.isDataFlavorSupported(rowFlavor);
+        }
+
+        @Override
+        public boolean importData(TransferSupport support) {
+            if (!canImport(support)) {
+                return false;
+            }
+
+            try {
+                int sourceRow = (Integer) support.getTransferable().getTransferData(rowFlavor);
+                JTable.DropLocation dropLocation = (JTable.DropLocation) support.getDropLocation();
+                moveVariable(sourceRow, dropLocation.getRow());
+                return true;
+            } catch (UnsupportedFlavorException | IOException e) {
+                api.logging().logToError("Failed to reorder variable: " + e.getMessage());
+                return false;
+            }
+        }
+    }
+
+    private static class VariableRowTransferable implements Transferable {
+        private final Integer row;
+        private final DataFlavor rowFlavor;
+
+        private VariableRowTransferable(int row, DataFlavor rowFlavor) {
+            this.row = row;
+            this.rowFlavor = rowFlavor;
+        }
+
+        @Override
+        public DataFlavor[] getTransferDataFlavors() {
+            return new DataFlavor[]{rowFlavor};
+        }
+
+        @Override
+        public boolean isDataFlavorSupported(DataFlavor flavor) {
+            return rowFlavor.equals(flavor);
+        }
+
+        @Override
+        public Object getTransferData(DataFlavor flavor) throws UnsupportedFlavorException {
+            if (!isDataFlavorSupported(flavor)) {
+                throw new UnsupportedFlavorException(flavor);
+            }
+            return row;
         }
     }
 
