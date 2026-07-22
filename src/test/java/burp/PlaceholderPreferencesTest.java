@@ -71,4 +71,20 @@ class PlaceholderPreferencesTest {
         assertEquals("dv", restored.tag());
         assertEquals(1, warnings.size());
     }
+
+    @Test
+    void defaultsToEnglishAndPersistsTheSelectedLanguage() {
+        assertEquals(UiLanguage.ENGLISH, PlaceholderPreferences.loadLanguage(key -> null));
+
+        Map<String, String> preferences = new HashMap<>();
+        PlaceholderPreferences.saveLanguage(preferences::put, UiLanguage.SPANISH);
+
+        assertEquals(UiLanguage.SPANISH, PlaceholderPreferences.loadLanguage(preferences::get));
+    }
+
+    @Test
+    void invalidLanguageFallsBackToEnglish() {
+        assertEquals(UiLanguage.ENGLISH,
+                PlaceholderPreferences.loadLanguage(key -> "unsupported"));
+    }
 }

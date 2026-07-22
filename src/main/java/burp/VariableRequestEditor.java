@@ -57,7 +57,12 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
     }
 
     private void createUI() {
-        mainPanel = new JPanel(new BorderLayout());
+        if (mainPanel == null) {
+            mainPanel = new JPanel(new BorderLayout());
+        } else {
+            mainPanel.removeAll();
+            mainPanel.setLayout(new BorderLayout());
+        }
 
         // Left Sidebar: Variables list panel
         JPanel sidebarPanel = new JPanel(new BorderLayout(5, 5));
@@ -66,10 +71,10 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
         sidebarPanel.setPreferredSize(new Dimension(150, 200));
 
         // Header label
-        JLabel headerLabel = new JLabel("Double-click a variable to insert:");
+        JLabel headerLabel = new JLabel(text("Double-click a variable to insert:"));
         headerLabel.setFont(new Font(headerLabel.getFont().getName(), Font.BOLD, 11));
         JTextField searchField = new JTextField();
-        searchField.putClientProperty("JTextField.placeholderText", "Search variables");
+        searchField.putClientProperty("JTextField.placeholderText", text("Search variables"));
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             private void update() {
                 filter = searchField.getText().trim().toLowerCase(java.util.Locale.ROOT);
@@ -99,7 +104,7 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
                     String varName = displayToVariable.get(value.toString());
                     if (varName == null) {
                         setFont(getFont().deriveFont(Font.BOLD));
-                        setToolTipText("Double-click to expand or collapse");
+                        setToolTipText(text("Double-click to expand or collapse"));
                         return c;
                     }
                     String varValue = variableManager.getVariables().get(varName);
@@ -112,7 +117,7 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
                         // be shown literally instead of wrapping the value.
                         setToolTipText(varValue);
                     } else {
-                        setToolTipText("No value");
+                        setToolTipText(text("No value"));
                     }
                 }
                 return c;
@@ -136,7 +141,7 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
 
         // Sidebar Bottom Buttons Panel
         JPanel sidebarButtonsPanel = new JPanel(new GridLayout(1, 2, 4, 4));
-        JButton insertButton = new JButton("Insert");
+        JButton insertButton = new JButton(text("Insert"));
         insertButton.setFont(new Font(insertButton.getFont().getName(), Font.PLAIN, 10));
         insertButton.addActionListener(e -> {
             if (!varList.isSelectionEmpty()) {
@@ -145,7 +150,7 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
             }
         });
 
-        JButton refreshButton = new JButton("Refresh");
+        JButton refreshButton = new JButton(text("Refresh"));
         refreshButton.setFont(new Font(refreshButton.getFont().getName(), Font.PLAIN, 10));
         refreshButton.addActionListener(e -> refreshVariableList());
 
@@ -178,7 +183,7 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
                             || folder.toLowerCase(java.util.Locale.ROOT).contains(filter)).toList();
             if (matches.isEmpty() && !filter.isEmpty()) continue;
             String label = (collapsedFolders.contains(folder) && filter.isEmpty() ? "▸ " : "▾ ") + "📁 "
-                    + (folder.isEmpty() ? "Ungrouped" : folder) + " (" + matches.size() + ")";
+                    + (folder.isEmpty() ? text("Ungrouped") : folder) + " (" + matches.size() + ")";
             listModel.addElement(label);
             if (!collapsedFolders.contains(folder) || !filter.isEmpty()) {
                 for (String name : matches) {
@@ -196,7 +201,7 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
         int count = display.lastIndexOf(" (");
         if (marker < 0 || count < marker) return;
         String folder = display.substring(marker + 3, count);
-        if ("Ungrouped".equals(folder)) folder = "";
+        if (text("Ungrouped").equals(folder)) folder = "";
         if (!collapsedFolders.add(folder)) collapsedFolders.remove(folder);
         refreshVariableList();
     }
@@ -280,6 +285,10 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
     @Override
     public String caption() {
         return "Dynamic Variables";
+    }
+
+    private String text(String englishText) {
+        return variableManager.text(englishText);
     }
 
     @Override

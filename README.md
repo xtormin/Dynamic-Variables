@@ -13,6 +13,7 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 - [How to Use](#how-to-use)
 - [Use Cases for Pentesters](#use-cases-for-pentesters)
 - [Installation](#installation)
+- [Running the Test Suite](#running-the-test-suite)
 - [Dependencies](#dependencies)
 - [License](#license)
 
@@ -102,6 +103,22 @@ With the tag `dv`, use `{{dv:token}}` or `{{dv:alice.token}}`. Only placeholders
 
 Only variables with the same local name in the target folder are changed. For example, if `user2` contains both `jwe` and `accountId`, the request becomes `{{user2.jwe}}` and `{{user2.accountId}}`. A source placeholder without a counterpart in `user2` remains unchanged and is listed in the preview.
 
+#### Using Folders to Test Different Users
+
+Folders are especially useful for representing different authenticated users, roles, or tenants during authorization testing. Create one folder per identity and give equivalent variables the same local names.
+
+For example, the `user1` and `user2` folders can both contain `jwe` and `accountId`. Build the request once using:
+
+`{{user1.jwe}}` and `{{user1.accountId}}`
+
+Then use **Cambiar carpeta de variables…** from the request context menu to switch it to:
+
+`{{user2.jwe}}` and `{{user2.accountId}}`
+
+Only placeholders with a matching variable in the target folder are changed. Placeholders without a counterpart remain untouched and are shown in the preview.
+
+This makes it quick and less error-prone to repeat the same request as another user when testing horizontal or vertical authorization, IDOR/BOLA vulnerabilities, role separation, and multi-tenant isolation.
+
 ### 5. Materializing Variables in a Repeater Request
 1. Open an editable Repeater request containing placeholders such as `{{token}}` or `{{alice.accountId}}`.
 2. Right-click anywhere in the request and choose **Sustituir variables por sus valores…**.
@@ -164,6 +181,48 @@ build/libs/dynamic-variables-1.0.1.jar
 3. Click **Add**.
 4. Set **Extension type** to `Java`.
 5. Select the compiled `dynamic-variables-1.0.1.jar` file and click **Next**.
+
+## Running the Test Suite
+
+Run the commands from the repository root. The suite uses JUnit 5 and covers placeholder parsing, tagged and untagged substitution, request rewriting, folder remapping, preference persistence, and state migration.
+
+On macOS or Linux, the most reliable command is:
+
+```bash
+java -classpath gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain test
+```
+
+On Windows PowerShell or Command Prompt:
+
+```powershell
+java -classpath gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain test
+```
+
+The standard Gradle wrapper commands can also be used:
+
+```bash
+./gradlew test        # macOS/Linux
+```
+
+```powershell
+gradlew.bat test      # Windows
+```
+
+If `./gradlew` reports a classpath or `sed` error when the repository path contains spaces, use the direct `java -classpath ...` command shown above.
+
+To force every test to run again without reusing Gradle task results:
+
+```bash
+java -classpath gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain test --rerun-tasks
+```
+
+To run the suite and produce the extension JAR in one invocation:
+
+```bash
+java -classpath gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain test jar
+```
+
+A successful run ends with `BUILD SUCCESSFUL`. Gradle writes the browsable report to `build/reports/tests/test/index.html` and the machine-readable JUnit XML results to `build/test-results/test/`.
 
 ---
 

@@ -43,23 +43,23 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         List<Component> items = new ArrayList<>();
 
         if (reqResp.selectionOffsets().isPresent()) {
-            JMenuItem assignItem = new JMenuItem("Assign to Variable...");
+            JMenuItem assignItem = new JMenuItem(text("Assign to Variable..."));
             assignItem.addActionListener(e -> showConfigDialog(event));
             items.add(assignItem);
         }
 
         if (reqResp.selectionContext() == MessageEditorHttpRequestResponse.SelectionContext.REQUEST) {
             if (isMaterializationContext(event.toolType(), event.invocationType(), reqResp.selectionContext())) {
-                JMenuItem materializeItem = new JMenuItem("Sustituir variables por sus valores\u2026");
+                JMenuItem materializeItem = new JMenuItem(text("Replace variables with their values..."));
                 materializeItem.setEnabled(hasAnyPlaceholder(reqResp.requestResponse().request()));
-                materializeItem.setToolTipText("Convierte los placeholders de esta petición en valores de texto.");
+                materializeItem.setToolTipText(text("Converts the placeholders in this request to plain-text values."));
                 materializeItem.addActionListener(e -> showMaterializationDialog(reqResp));
                 items.add(materializeItem);
             }
 
-            JMenuItem switchFolderItem = new JMenuItem("Cambiar carpeta de variables\u2026");
+            JMenuItem switchFolderItem = new JMenuItem(text("Change variable folder..."));
             switchFolderItem.setEnabled(hasUsefulFolderRemap(reqResp.requestResponse().request()));
-            switchFolderItem.setToolTipText("Sustituye los placeholders coincidentes de una carpeta por los de otra.");
+            switchFolderItem.setToolTipText(text("Replaces matching placeholders from one folder with those from another."));
             switchFolderItem.addActionListener(e -> showFolderRemapDialog(reqResp));
             items.add(switchFolderItem);
         }
@@ -87,7 +87,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         MaterializedRequestResult result = materializeRequest(originalRequest, variables, placeholderStyle);
 
         Frame suiteFrame = api.userInterface().swingUtils().suiteFrame();
-        JDialog dialog = new JDialog(suiteFrame, "Sustituir variables por sus valores",
+        JDialog dialog = new JDialog(suiteFrame, text("Replace variables with their values"),
                 Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setLayout(new BorderLayout(10, 10));
         dialog.setSize(680, 500);
@@ -102,17 +102,17 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
 
         JPanel previewPanel = new JPanel(new BorderLayout(5, 5));
         previewPanel.setBorder(new EmptyBorder(10, 15, 5, 15));
-        previewPanel.add(new JLabel("Vista previa de los valores que se escribirán en la petición:"),
+        previewPanel.add(new JLabel(text("Preview of the values that will be written to the request:")),
                 BorderLayout.NORTH);
         previewPanel.add(new JScrollPane(preview), BorderLayout.CENTER);
 
-        JButton applyButton = new JButton("Sustituir valores");
+        JButton applyButton = new JButton(text("Replace values"));
         applyButton.setEnabled(!result.replacedVariables().isEmpty());
         applyButton.addActionListener(e -> {
             editor.setRequest(result.request());
             dialog.dispose();
         });
-        JButton cancelButton = new JButton("Cancelar");
+        JButton cancelButton = new JButton(text("Cancel"));
         cancelButton.addActionListener(e -> dialog.dispose());
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 5));
@@ -128,14 +128,14 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
                                                 VariableNames.PlaceholderStyle placeholderStyle) {
         StringBuilder text = new StringBuilder();
         if (result.replacedVariables().isEmpty()) {
-            text.append("No hay variables definidas que se puedan sustituir.\n");
+            text.append(variableManager.text("No defined variables can be replaced.\n"));
         } else {
-            text.append("Se sustituirán:\n");
+            text.append(variableManager.text("The following will be replaced:\n"));
             for (String variableName : result.replacedVariables()) {
                 text.append("  ").append(VariableNames.placeholder(variableName, placeholderStyle)).append("  \u2192  ");
                 String value = variables.get(variableName);
                 if (value.isEmpty()) {
-                    text.append("(valor vacío)");
+                    text.append(variableManager.text("(empty value)"));
                 } else {
                     text.append(value.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\n      "));
                 }
@@ -144,13 +144,13 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         }
 
         if (!result.unresolvedVariables().isEmpty()) {
-            text.append("\nSe conservarán porque no están definidas:\n");
+            text.append(variableManager.text("\nThe following will be kept because they are not defined:\n"));
             for (String variableName : result.unresolvedVariables()) {
                 text.append("  ").append(VariableNames.placeholder(variableName, placeholderStyle)).append('\n');
             }
         }
 
-        text.append("\nEsta acción modifica la plantilla abierta en Repeater.");
+        text.append(variableManager.text("\nThis action modifies the template open in Repeater."));
         return text.toString();
     }
 
@@ -225,13 +225,13 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         List<String> detectedFolders = VariableNames.detectPlaceholderFolders(requestText, placeholderStyle);
         if (detectedFolders.isEmpty()) {
             JOptionPane.showMessageDialog(api.userInterface().swingUtils().suiteFrame(),
-                    "La petición no contiene placeholders con carpeta.", "Cambiar carpeta de variables",
+                    text("The request does not contain placeholders with folders."), text("Change variable folder"),
                     JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
         Frame suiteFrame = api.userInterface().swingUtils().suiteFrame();
-        JDialog dialog = new JDialog(suiteFrame, "Cambiar carpeta de variables", Dialog.ModalityType.APPLICATION_MODAL);
+        JDialog dialog = new JDialog(suiteFrame, text("Change variable folder"), Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setLayout(new BorderLayout(10, 10));
         dialog.setSize(610, 430);
         dialog.setLocationRelativeTo(suiteFrame);
@@ -248,20 +248,20 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         preview.setEditable(false);
         preview.setLineWrap(true);
         preview.setWrapStyleWord(true);
-        JButton applyButton = new JButton("Aplicar cambio");
-        JButton cancelButton = new JButton("Cancelar");
+        JButton applyButton = new JButton(text("Apply change"));
+        JButton cancelButton = new JButton(text("Cancel"));
 
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.weightx = 0;
-        choices.add(new JLabel("Carpeta origen:"), gbc);
+        choices.add(new JLabel(text("Source folder:")), gbc);
         gbc.gridx = 1;
         gbc.weightx = 1;
         choices.add(sourceCombo, gbc);
         gbc.gridx = 0;
         gbc.gridy = 1;
         gbc.weightx = 0;
-        choices.add(new JLabel("Carpeta destino:"), gbc);
+        choices.add(new JLabel(text("Target folder:")), gbc);
         gbc.gridx = 1;
         gbc.weightx = 1;
         choices.add(targetCombo, gbc);
@@ -270,7 +270,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
             String source = (String) sourceCombo.getSelectedItem();
             String target = (String) targetCombo.getSelectedItem();
             if (source == null || target == null) {
-                preview.setText("No hay otra carpeta disponible como destino.");
+                preview.setText(text("No other folder is available as a target."));
                 applyButton.setEnabled(false);
                 return;
             }
@@ -300,16 +300,16 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
             String source = (String) sourceCombo.getSelectedItem();
             String target = (String) targetCombo.getSelectedItem();
             if (source == null || target == null || source.equals(target)) {
-                JOptionPane.showMessageDialog(dialog, "Selecciona carpetas de origen y destino diferentes.",
-                        "Sin cambios", JOptionPane.INFORMATION_MESSAGE);
+                JOptionPane.showMessageDialog(dialog, text("Select different source and target folders."),
+                        text("No changes"), JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
             Set<String> targetNames = new LinkedHashSet<>(variableManager.getVariableNamesInFolder(target));
             RequestRemapResult result = remapRequest(
                     originalRequest, source, target, targetNames, placeholderStyle);
             if (result.replacedVariables().isEmpty()) {
-                JOptionPane.showMessageDialog(dialog, "No hay variables coincidentes para sustituir.",
-                        "Sin cambios", JOptionPane.INFORMATION_MESSAGE);
+                JOptionPane.showMessageDialog(dialog, text("There are no matching variables to replace."),
+                        text("No changes"), JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
             editor.setRequest(result.request());
@@ -319,7 +319,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
 
         JPanel previewPanel = new JPanel(new BorderLayout(5, 5));
         previewPanel.setBorder(new EmptyBorder(5, 15, 5, 15));
-        previewPanel.add(new JLabel("Vista previa:"), BorderLayout.NORTH);
+        previewPanel.add(new JLabel(text("Preview:")), BorderLayout.NORTH);
         previewPanel.add(new JScrollPane(preview), BorderLayout.CENTER);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 5));
@@ -337,9 +337,9 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
                                       VariableNames.PlaceholderStyle placeholderStyle) {
         StringBuilder text = new StringBuilder();
         if (result.replacedVariables().isEmpty()) {
-            text.append("No hay variables coincidentes entre estas carpetas.");
+            text.append(variableManager.text("There are no matching variables between these folders."));
         } else {
-            text.append("Se sustituirán:\n");
+            text.append(variableManager.text("The following will be replaced:\n"));
             for (String localName : result.replacedVariables()) {
                 text.append("  ").append(VariableNames.placeholder(source + "." + localName, placeholderStyle))
                         .append("  \u2192  ").append(VariableNames.placeholder(
@@ -347,7 +347,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
             }
         }
         if (!result.unmatchedVariables().isEmpty()) {
-            text.append("\nSe conservarán porque no existen en la carpeta destino:\n");
+            text.append(variableManager.text("\nThe following will be kept because they do not exist in the target folder:\n"));
             for (String localName : result.unmatchedVariables()) {
                 text.append("  ").append(VariableNames.placeholder(
                         source + "." + localName, placeholderStyle)).append('\n');
@@ -432,7 +432,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         // Slice selected text
         if (start < 0 || end > textStr.length() || start >= end) {
             Frame suiteFrame = api.userInterface().swingUtils().suiteFrame();
-            JOptionPane.showMessageDialog(suiteFrame, "Invalid selection range.", "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(suiteFrame, text("Invalid selection range."), text("Error"), JOptionPane.ERROR_MESSAGE);
             return;
         }
         String selectedText = textStr.substring(start, end);
@@ -465,7 +465,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
 
         // Build the Swing dialog
         Frame suiteFrame = api.userInterface().swingUtils().suiteFrame();
-        JDialog dialog = new JDialog(suiteFrame, "Assign to Variable", Dialog.ModalityType.APPLICATION_MODAL);
+        JDialog dialog = new JDialog(suiteFrame, text("Assign to Variable"), Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setLayout(new BorderLayout(10, 10));
         dialog.setSize(520, 465);
         dialog.setLocationRelativeTo(suiteFrame);
@@ -480,11 +480,11 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         // Row 0: Folder
         gbc.gridy = 0;
         gbc.weightx = 0.0;
-        panel.add(new JLabel("Folder:"), gbc);
+        panel.add(new JLabel(text("Folder:")), gbc);
 
         List<String> folderNames = variableManager.getFolderNames();
         JComboBox<String> folderComboBox = new JComboBox<>();
-        folderComboBox.addItem("Ungrouped");
+        folderComboBox.addItem(text("Ungrouped"));
         for (String folderName : folderNames) folderComboBox.addItem(folderName);
         gbc.gridx = 1;
         gbc.weightx = 1.0;
@@ -494,7 +494,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         gbc.gridy = 1;
         gbc.gridx = 0;
         gbc.weightx = 0.0;
-        panel.add(new JLabel("Variable Name:"), gbc);
+        panel.add(new JLabel(text("Variable Name:")), gbc);
 
         List<String> names = variableManager.getVariableNamesInFolder("");
         JComboBox<String> nameComboBox = new JComboBox<>(names.toArray(new String[0]));
@@ -519,7 +519,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         gbc.gridy = 2;
         gbc.gridx = 0;
         gbc.weightx = 0.0;
-        panel.add(new JLabel("Selected Value:"), gbc);
+        panel.add(new JLabel(text("Selected Value:")), gbc);
 
         JTextArea valuePreview = new JTextArea(3, 20);
         valuePreview.setText(selectedText);
@@ -535,7 +535,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         gbc.gridy = 3;
         gbc.gridx = 0;
         gbc.weightx = 0.0;
-        panel.add(new JLabel("Match URL/Path (Regex):"), gbc);
+        panel.add(new JLabel(text("Match URL/Path (Regex):")), gbc);
 
         JTextField pathField = new JTextField(path);
         gbc.gridx = 1;
@@ -546,10 +546,10 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         gbc.gridy = 4;
         gbc.gridx = 0;
         gbc.weightx = 0.0;
-        panel.add(new JLabel("Extract From:"), gbc);
+        panel.add(new JLabel(text("Extract From:")), gbc);
 
         JComboBox<String> sourceComboBox = new JComboBox<>(new String[]{
-            "Response Body", "Response Headers", "Request Body", "Request Headers"
+            text("Response Body"), text("Response Headers"), text("Request Body"), text("Request Headers")
         });
         if ("request_body".equals(source)) {
             sourceComboBox.setSelectedIndex(2);
@@ -568,7 +568,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         gbc.gridy = 5;
         gbc.gridx = 0;
         gbc.weightx = 0.0;
-        panel.add(new JLabel("Regex Pattern (1 group):"), gbc);
+        panel.add(new JLabel(text("Regex Pattern (1 group):")), gbc);
 
         JTextField regexField = new JTextField(proposedRegex);
         gbc.gridx = 1;
@@ -579,25 +579,25 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         gbc.gridy = 6;
         gbc.gridx = 0;
         gbc.gridwidth = 2;
-        JCheckBox saveRequestCheckBox = new JCheckBox("Save this request to refresh token in the future", true);
+        JCheckBox saveRequestCheckBox = new JCheckBox(text("Save this request to refresh token in the future"), true);
         panel.add(saveRequestCheckBox, gbc);
 
         gbc.gridwidth = 1;
 
         // Row 6: Action Buttons
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 5));
-        JButton saveButton = new JButton("Save Rule");
-        JButton cancelButton = new JButton("Cancel");
+        JButton saveButton = new JButton(text("Save Rule"));
+        JButton cancelButton = new JButton(text("Cancel"));
 
         saveButton.addActionListener(al -> {
             Object selectedItem = nameComboBox.getSelectedItem();
             if (selectedItem == null || selectedItem.toString().trim().isEmpty()) {
-                JOptionPane.showMessageDialog(dialog, "Please select or type a variable name.", "Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(dialog, text("Please select or type a variable name."), text("Error"), JOptionPane.ERROR_MESSAGE);
                 return;
             }
             String varName = selectedItem.toString().trim();
             if (varName.contains(".")) {
-                JOptionPane.showMessageDialog(dialog, "Variable names cannot contain '.'. Choose the folder separately.", "Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(dialog, text("Variable names cannot contain '.'. Choose the folder separately."), text("Error"), JOptionPane.ERROR_MESSAGE);
                 return;
             }
             String folderName = folderComboBox.getSelectedIndex() == 0 ? "" : folderComboBox.getSelectedItem().toString();
@@ -701,5 +701,9 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         String suffix = succeeding.substring(0, Math.min(succeeding.length(), 5));
 
         return java.util.regex.Pattern.quote(prefix) + "(.*?)" + java.util.regex.Pattern.quote(suffix);
+    }
+
+    private String text(String englishText) {
+        return variableManager.text(englishText);
     }
 }
