@@ -197,7 +197,7 @@ gradle build
 El JAR se generará en:
 
 ```text
-build/libs/dynamic-variables-1.0.1.jar
+build/libs/dynamic-variables-1.0.2.jar
 ```
 
 ### Cargar la extensión en Burp Suite
@@ -206,7 +206,7 @@ build/libs/dynamic-variables-1.0.1.jar
 2. Ve a **Extensions** → **Installed**.
 3. Pulsa **Add**.
 4. Selecciona `Java` como **Extension type**.
-5. Selecciona el archivo compilado `dynamic-variables-1.0.1.jar` y pulsa **Next**.
+5. Selecciona el archivo compilado `dynamic-variables-1.0.2.jar` y pulsa **Next**.
 
 ## Ejecución de las pruebas
 
