@@ -1,5 +1,7 @@
 # Dynamic Variables — Burp Suite Extension
 
+**English** | [Español](README_ES.md)
+
 > **Placeholder-based request variables for Repeater, Intruder, Scanner and Proxy with transparent auto-refreshing on session expiration (401/403) in Burp Suite.**
 
 Dynamic Variables is a Burp Suite extension that brings template variables and automatic session refreshes to your pentesting workflow. Define placeholders like `{{token}}` in Repeater, Intruder, Scanner, or Proxy requests (similar to how it is done in Postman), optionally require a custom tag such as `{{dv:token}}` to avoid collisions with security payloads, select text in HTTP responses to auto-generate regex extraction rules, and repeat login/refresh requests automatically in the background when your session expires.
@@ -37,6 +39,7 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 | 12 | **Request Folder Switching** | Replace every matching placeholder from one folder with its counterpart in another folder directly from a request's context menu. |
 | 13 | **Materialize Repeater Variables** | Preview and permanently replace all known placeholders in an editable Repeater request with their current text values for direct testing without variables. |
 | 14 | **Configurable Placeholder Tag** | Optionally require a custom tag such as `dv` so only `{{dv:variable_name}}` is substituted and unrelated `{{...}}` pentesting payloads remain untouched. |
+| 15 | **English and Spanish Interface** | Choose the language used throughout the extension from **Configuration...**. English is used by default and the selected language is saved between Burp sessions. |
 
 ---
 
@@ -63,6 +66,16 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 6. In Repeater, reference an ungrouped variable as `{{api_key}}` or a grouped variable as `{{alice.token}}`. It will be substituted when the request is sent.
 
 Folders can be expanded or collapsed. Drag variables to reorder them or move them between folders; because moving changes the placeholder, the extension shows the old and new placeholders before applying the move. Right-click a variable to rename it, copy its placeholder, move it, or delete it.
+
+#### Interface Language
+
+English is the default interface language. To use the extension in Spanish:
+
+1. Click **Configuration...** in the Dynamic Variables tab.
+2. Select **Spanish** from the **Language** list.
+3. Click **OK**.
+
+The dashboard, dialogs, context menus, and request editor controls use the selected language. The preference is stored automatically and restored the next time the extension is loaded. Select **English** from the same list to switch back.
 
 #### Optional: Require a Placeholder Tag
 
@@ -97,9 +110,9 @@ With the tag `dv`, use `{{dv:token}}` or `{{dv:alice.token}}`. Only placeholders
 
 ### 4. Switching a Request to Another Variable Folder
 1. Open a request containing grouped placeholders, for example `{{user1.jwe}}` and `{{user1.accountId}}`.
-2. Right-click anywhere in the request and choose **Cambiar carpeta de variables…**.
+2. Right-click anywhere in the request and choose **Change variable folder...**.
 3. Select `user1` as the source folder and `user2` as the target folder.
-4. Review the preview and click **Aplicar cambio**.
+4. Review the preview and click **Apply change**.
 
 Only variables with the same local name in the target folder are changed. For example, if `user2` contains both `jwe` and `accountId`, the request becomes `{{user2.jwe}}` and `{{user2.accountId}}`. A source placeholder without a counterpart in `user2` remains unchanged and is listed in the preview.
 
@@ -111,7 +124,7 @@ For example, the `user1` and `user2` folders can both contain `jwe` and `account
 
 `{{user1.jwe}}` and `{{user1.accountId}}`
 
-Then use **Cambiar carpeta de variables…** from the request context menu to switch it to:
+Then use **Change variable folder...** from the request context menu to switch it to:
 
 `{{user2.jwe}}` and `{{user2.accountId}}`
 
@@ -121,9 +134,9 @@ This makes it quick and less error-prone to repeat the same request as another u
 
 ### 5. Materializing Variables in a Repeater Request
 1. Open an editable Repeater request containing placeholders such as `{{token}}` or `{{alice.accountId}}`.
-2. Right-click anywhere in the request and choose **Sustituir variables por sus valores…**.
+2. Right-click anywhere in the request and choose **Replace variables with their values...**.
 3. Review the current values that will be inserted and any unknown placeholders that will remain unchanged.
-4. Click **Sustituir valores** to update the request's path, header values, and body.
+4. Click **Replace values** to update the request's path, header values, and body.
 
 This modifies the template currently open in Repeater. Once a placeholder has been replaced with text, later updates to that variable no longer affect this request. Duplicate the Repeater tab first or use Repeater's undo support if you may need the original template again.
 
