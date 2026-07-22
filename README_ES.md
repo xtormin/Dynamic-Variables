@@ -4,7 +4,7 @@
 
 > **Variables para peticiones basadas en placeholders en Repeater, Intruder, Scanner y Proxy, con actualización automática y transparente cuando la sesión caduca (401/403) en Burp Suite.**
 
-Dynamic Variables es una extensión para Burp Suite que incorpora variables de plantilla y actualización automática de sesiones a tu flujo de pentesting. Permite definir placeholders como `{{token}}` en peticiones de Repeater, Intruder, Scanner o Proxy —de forma parecida a Postman—, exigir opcionalmente una etiqueta personalizada como `{{dv:token}}` para evitar colisiones con payloads de seguridad, seleccionar texto en respuestas HTTP para generar automáticamente reglas de extracción mediante regex y repetir peticiones de login o actualización en segundo plano cuando la sesión caduca.
+Dynamic Variables es una extensión para Burp Suite que incorpora variables de plantilla y actualización automática de sesiones a tu flujo de pentesting. Permite definir placeholders como `{{token}}` en peticiones de Repeater, Intruder, Scanner o Proxy —de forma parecida a Postman—, exigir opcionalmente una etiqueta personalizada como `{{dv:token}}` para evitar colisiones con payloads, seleccionar texto en respuestas HTTP para generar automáticamente reglas de extracción mediante regex y repetir peticiones de login o actualización en segundo plano cuando la sesión caduca.
 
 ---
 
