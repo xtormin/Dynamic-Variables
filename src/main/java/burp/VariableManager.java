@@ -50,6 +50,7 @@ public final class VariableManager {
     private String refreshStatusCodes = "401, 403";
     private volatile boolean placeholderTagEnabled = false;
     private volatile String placeholderTag = "dv";
+    private volatile UiLanguage uiLanguage = UiLanguage.ENGLISH;
 
     // UI Components
     private JPanel mainPanel;
@@ -144,6 +145,10 @@ public final class VariableManager {
 
     public String placeholderFor(String qualifiedName) {
         return VariableNames.placeholder(qualifiedName, getPlaceholderStyle());
+    }
+
+    String text(String englishText) {
+        return UiText.get(uiLanguage, englishText);
     }
 
     public void addOrUpdateExtractionRuleInFolder(String folderName, String localName, String value,
@@ -271,7 +276,12 @@ public final class VariableManager {
     }
 
     private void createUI() {
-        mainPanel = new JPanel(new BorderLayout(10, 10));
+        if (mainPanel == null) {
+            mainPanel = new JPanel(new BorderLayout(10, 10));
+        } else {
+            mainPanel.removeAll();
+            mainPanel.setLayout(new BorderLayout(10, 10));
+        }
         mainPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
         // --- TOP GLOBAL SETTINGS PANEL ---
@@ -311,7 +321,7 @@ public final class VariableManager {
         scannerReplaceCheckBox.setVisible(replacementMasterEnabled);
         proxyReplaceCheckBox.setVisible(replacementMasterEnabled);
 
-        replacementMasterCheckBox = new JCheckBox("Enable Variable Replacement", replacementMasterEnabled);
+        replacementMasterCheckBox = new JCheckBox(text("Enable Variable Replacement"), replacementMasterEnabled);
         replacementMasterCheckBox.setFont(new Font(replacementMasterCheckBox.getFont().getName(), Font.BOLD, 12));
         replacementMasterCheckBox.addActionListener(e -> {
             replacementMasterEnabled = replacementMasterCheckBox.isSelected();
@@ -325,9 +335,9 @@ public final class VariableManager {
             topPanel.repaint();
         });
 
-        globalExtractCheckBox = new JCheckBox("Enable Response Auto-Extraction", extractionEnabled);
+        globalExtractCheckBox = new JCheckBox(text("Enable Response Auto-Extraction"), extractionEnabled);
         globalExtractCheckBox.setFont(new Font(globalExtractCheckBox.getFont().getName(), Font.BOLD, 12));
-        globalExtractCheckBox.setToolTipText("Automatically extracts variable values from responses to keep them updated in the background.");
+        globalExtractCheckBox.setToolTipText(text("Automatically extracts variable values from responses to keep them updated in the background."));
         globalExtractCheckBox.addActionListener(e -> {
             extractionEnabled = globalExtractCheckBox.isSelected();
             savePreferences();
@@ -351,11 +361,11 @@ public final class VariableManager {
         separator2.setPreferredSize(new Dimension(3, 20));
         topPanel.add(separator2);
 
-        JLabel refreshStatusCodesLabel = new JLabel("Refresh Status Codes:");
-        refreshStatusCodesLabel.setToolTipText("HTTP status codes (comma separated) that trigger an automatic token refresh (e.g., 401, 403).");
+        JLabel refreshStatusCodesLabel = new JLabel(text("Refresh Status Codes:"));
+        refreshStatusCodesLabel.setToolTipText(text("HTTP status codes (comma separated) that trigger an automatic token refresh (e.g., 401, 403)."));
         topPanel.add(refreshStatusCodesLabel);
         refreshStatusCodesField = new JTextField(refreshStatusCodes, 8);
-        refreshStatusCodesField.setToolTipText("HTTP status codes (comma separated) that trigger an automatic token refresh (e.g., 401, 403).");
+        refreshStatusCodesField.setToolTipText(text("HTTP status codes (comma separated) that trigger an automatic token refresh (e.g., 401, 403)."));
         refreshStatusCodesField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
             refreshStatusCodes = refreshStatusCodesField.getText();
             savePreferences();
@@ -366,8 +376,8 @@ public final class VariableManager {
         separator3.setPreferredSize(new Dimension(3, 20));
         topPanel.add(separator3);
 
-        JButton settingsButton = new JButton("Configuration...");
-        settingsButton.setToolTipText("Configure an optional tag that uniquely identifies variable placeholders.");
+        JButton settingsButton = new JButton(text("Configuration..."));
+        settingsButton.setToolTipText(text("Configure the interface language and the optional tag that uniquely identifies variable placeholders."));
         settingsButton.addActionListener(e -> showPlaceholderSettingsDialog());
         topPanel.add(settingsButton);
 
@@ -386,7 +396,7 @@ public final class VariableManager {
         variablesTable.setDragEnabled(true);
         variablesTable.setDropMode(DropMode.INSERT_ROWS);
         variablesTable.setTransferHandler(new VariableRowTransferHandler());
-        variablesTable.setToolTipText("Drag to reorder or move variables between folders.");
+        variablesTable.setToolTipText(text("Drag to reorder or move variables between folders."));
         variablesTable.getColumnModel().getColumn(0).setCellRenderer(new HierarchyCellRenderer());
         DefaultCellEditor variableNameEditor = new DefaultCellEditor(new JTextField());
         variableNameEditor.setClickCountToStart(2);
@@ -410,15 +420,35 @@ public final class VariableManager {
         });
         variablesTable.addMouseListener(new MouseAdapter() {
             @Override
+            public void mousePressed(MouseEvent e) {
+                showPopupIfTriggered(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                showPopupIfTriggered(e);
+            }
+
+            @Override
             public void mouseClicked(MouseEvent e) {
                 int row = variablesTable.rowAtPoint(e.getPoint());
                 if (row < 0) return;
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2 && tableModel.isFolderRow(row)) {
                     toggleFolderAt(row);
-                } else if (SwingUtilities.isRightMouseButton(e)) {
-                    variablesTable.setRowSelectionInterval(row, row);
-                    createVariablesPopup(row).show(variablesTable, e.getX(), e.getY());
                 }
+            }
+
+            private void showPopupIfTriggered(MouseEvent e) {
+                if (!e.isPopupTrigger()) return;
+                int row = variablesTable.rowAtPoint(e.getPoint());
+                if (row < 0) return;
+
+                if (variablesTable.isEditing()) {
+                    variablesTable.getCellEditor().stopCellEditing();
+                }
+                variablesTable.setRowSelectionInterval(row, row);
+                createVariablesPopup(row).show(variablesTable, e.getX(), e.getY());
+                e.consume();
             }
         });
         variablesTable.getSelectionModel().addListSelectionListener(e -> {
@@ -430,7 +460,7 @@ public final class VariableManager {
 
         JPanel navigationPanel = new JPanel(new BorderLayout(5, 5));
         JTextField searchField = new JTextField();
-        searchField.putClientProperty("JTextField.placeholderText", "Search folders or variables");
+        searchField.putClientProperty("JTextField.placeholderText", text("Search folders or variables"));
         searchField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
             variableSearch = searchField.getText().trim().toLowerCase(Locale.ROOT);
             tableModel.fireTableDataChanged();
@@ -442,10 +472,10 @@ public final class VariableManager {
 
         // Buttons Panel under Table
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
-        JButton addFolderButton = new JButton("New Folder");
-        JButton addButton = new JButton("New Variable");
-        JButton deleteButton = new JButton("Delete Selected");
-        JButton clearButton = new JButton("Clear All");
+        JButton addFolderButton = new JButton(text("New Folder"));
+        JButton addButton = new JButton(text("New Variable"));
+        JButton deleteButton = new JButton(text("Delete Selected"));
+        JButton clearButton = new JButton(text("Clear All"));
 
         addFolderButton.addActionListener(e -> createFolderDialog());
         addButton.addActionListener(e -> createVariableDialog(selectedFolderId()));
@@ -455,7 +485,7 @@ public final class VariableManager {
         });
 
         clearButton.addActionListener(e -> {
-            int confirm = JOptionPane.showConfirmDialog(mainPanel, "Are you sure you want to clear all variables?", "Confirm Clear", JOptionPane.YES_NO_OPTION);
+            int confirm = JOptionPane.showConfirmDialog(mainPanel, text("Are you sure you want to clear all variables?"), text("Confirm Clear"), JOptionPane.YES_NO_OPTION);
             if (confirm == JOptionPane.YES_OPTION) {
                 synchronized (lock) {
                     variableNames.clear();
@@ -488,7 +518,7 @@ public final class VariableManager {
         JPanel valuePanel = new JPanel(new BorderLayout(5, 5));
         valuePanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
-                "Variable Value Editor (Paste long values here)",
+                text("Variable Value Editor (Paste long values here)"),
                 TitledBorder.LEFT,
                 TitledBorder.TOP,
                 new Font(mainPanel.getFont().getName(), Font.BOLD, 12)
@@ -526,7 +556,7 @@ public final class VariableManager {
         JPanel rulePanel = new JPanel(new GridBagLayout());
         rulePanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(), 
-                "Response Auto-Extraction Rule", 
+                text("Response Auto-Extraction Rule"),
                 TitledBorder.LEFT, 
                 TitledBorder.TOP, 
                 new Font(mainPanel.getFont().getName(), Font.PLAIN, 12)
@@ -538,7 +568,7 @@ public final class VariableManager {
         rgbc.gridx = 0;
 
         // Checkbox: Enable rule
-        ruleEnabledCheckBox = new JCheckBox("Enable auto-extraction for this variable");
+        ruleEnabledCheckBox = new JCheckBox(text("Enable auto-extraction for this variable"));
         ruleEnabledCheckBox.addActionListener(e -> updateActiveRuleFromUI());
         rgbc.gridy = 0;
         rgbc.gridwidth = 2;
@@ -550,7 +580,7 @@ public final class VariableManager {
         rgbc.gridy = 1;
         rgbc.gridx = 0;
         rgbc.weightx = 0.0;
-        rulePanel.add(new JLabel("Match URL/Path (Regex):"), rgbc);
+        rulePanel.add(new JLabel(text("Match URL/Path (Regex):")), rgbc);
         
         matchUrlField = new JTextField();
         matchUrlField.getDocument().addDocumentListener(new SimpleDocumentListener(this::updateActiveRuleFromUI));
@@ -562,10 +592,10 @@ public final class VariableManager {
         rgbc.gridy = 2;
         rgbc.gridx = 0;
         rgbc.weightx = 0.0;
-        rulePanel.add(new JLabel("Extract From:"), rgbc);
+        rulePanel.add(new JLabel(text("Extract From:")), rgbc);
 
         sourceComboBox = new JComboBox<>(new String[]{
-            "Response Body", "Response Headers", "Request Body", "Request Headers"
+            text("Response Body"), text("Response Headers"), text("Request Body"), text("Request Headers")
         });
         sourceComboBox.addActionListener(e -> updateActiveRuleFromUI());
         rgbc.gridx = 1;
@@ -576,7 +606,7 @@ public final class VariableManager {
         rgbc.gridy = 3;
         rgbc.gridx = 0;
         rgbc.weightx = 0.0;
-        rulePanel.add(new JLabel("Regex (with 1 capture group):"), rgbc);
+        rulePanel.add(new JLabel(text("Regex (with 1 capture group):")), rgbc);
 
         regexField = new JTextField();
         regexField.getDocument().addDocumentListener(new SimpleDocumentListener(this::updateActiveRuleFromUI));
@@ -588,7 +618,7 @@ public final class VariableManager {
         rgbc.gridy = 4;
         rgbc.gridx = 0;
         rgbc.gridwidth = 2;
-        updateRuleButton = new JButton("Update Rule from Response...");
+        updateRuleButton = new JButton(text("Update Rule from Response..."));
         updateRuleButton.addActionListener(e -> triggerUpdateRuleFromResponse());
         rulePanel.add(updateRuleButton, rgbc);
 
@@ -596,22 +626,22 @@ public final class VariableManager {
 
         // 3. Refresh Action Panel (background request sender, edit request & send to repeater)
         JPanel refreshPanel = new JPanel(new BorderLayout(5, 5));
-        refreshPanel.setBorder(BorderFactory.createTitledBorder("Token Refresh Request"));
+        refreshPanel.setBorder(BorderFactory.createTitledBorder(text("Token Refresh Request")));
         
-        savedRequestLabel = new JLabel("Saved Request: None");
+        savedRequestLabel = new JLabel(text("Saved Request: None"));
         savedRequestLabel.setFont(new Font(savedRequestLabel.getFont().getName(), Font.ITALIC, 11));
         savedRequestLabel.setBorder(new EmptyBorder(5, 10, 5, 10));
         refreshPanel.add(savedRequestLabel, BorderLayout.NORTH);
 
         JPanel refreshButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
         
-        refreshRequestButton = new JButton("Refresh Variable");
+        refreshRequestButton = new JButton(text("Refresh Variable"));
         refreshRequestButton.addActionListener(e -> triggerBackgroundRefresh());
         
-        sendToRepeaterButton = new JButton("Send to Repeater");
+        sendToRepeaterButton = new JButton(text("Send to Repeater"));
         sendToRepeaterButton.addActionListener(e -> triggerSendToRepeater());
 
-        editRequestButton = new JButton("Edit Request");
+        editRequestButton = new JButton(text("Edit Request"));
         editRequestButton.addActionListener(e -> showEditRequestDialog());
 
         refreshButtonsPanel.add(refreshRequestButton);
@@ -653,10 +683,24 @@ public final class VariableManager {
 
         // Disable details until selection
         updateDetailsPanel(-1);
+        mainPanel.revalidate();
+        mainPanel.repaint();
     }
 
     private void showPlaceholderSettingsDialog() {
-        JCheckBox tagEnabledCheckBox = new JCheckBox("Use a tag in variable placeholders", placeholderTagEnabled);
+        JComboBox<UiLanguage> languageComboBox = new JComboBox<>(UiLanguage.values());
+        languageComboBox.setSelectedItem(uiLanguage);
+        languageComboBox.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                           boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value == UiLanguage.ENGLISH) setText(text("English"));
+                if (value == UiLanguage.SPANISH) setText(text("Spanish"));
+                return this;
+            }
+        });
+        JCheckBox tagEnabledCheckBox = new JCheckBox(text("Use a tag in variable placeholders"), placeholderTagEnabled);
         JTextField tagField = new JTextField(placeholderTag, 20);
         JLabel previewLabel = new JLabel();
         JLabel validationLabel = new JLabel(" ");
@@ -668,8 +712,8 @@ public final class VariableManager {
             String candidate = tagField.getText().trim();
             boolean valid = !enabled || VariableNames.isValidTag(candidate);
             validationLabel.setText(valid ? " "
-                    : "The tag must start with a letter and contain only letters, numbers, _ or -. ");
-            previewLabel.setText("Example: " + (valid
+                    : text("The tag must start with a letter and contain only letters, numbers, _ or -. "));
+            previewLabel.setText(text("Example: ") + (valid
                     ? VariableNames.placeholder("token", new VariableNames.PlaceholderStyle(enabled,
                             enabled ? candidate : ""))
                     : "{{tag:token}}"));
@@ -687,31 +731,35 @@ public final class VariableManager {
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.gridwidth = 2;
-        panel.add(tagEnabledCheckBox, gbc);
+        panel.add(new JLabel(text("Language:")), gbc);
         gbc.gridy = 1;
+        panel.add(languageComboBox, gbc);
+        gbc.gridy = 2;
+        panel.add(tagEnabledCheckBox, gbc);
+        gbc.gridy = 3;
         gbc.gridwidth = 1;
         gbc.weightx = 0;
-        panel.add(new JLabel("Tag:"), gbc);
+        panel.add(new JLabel(text("Tag:")), gbc);
         gbc.gridx = 1;
         gbc.weightx = 1;
         panel.add(tagField, gbc);
         gbc.gridx = 0;
-        gbc.gridy = 2;
+        gbc.gridy = 4;
         gbc.gridwidth = 2;
         panel.add(previewLabel, gbc);
-        gbc.gridy = 3;
+        gbc.gridy = 5;
         panel.add(validationLabel, gbc);
-        gbc.gridy = 4;
+        gbc.gridy = 6;
         JPanel behaviorNotice = new JPanel();
         behaviorNotice.setLayout(new BoxLayout(behaviorNotice, BoxLayout.Y_AXIS));
-        behaviorNotice.add(new JLabel("Existing requests are not rewritten automatically. When tagging is enabled,"));
-        behaviorNotice.add(new JLabel("only placeholders containing the configured tag are replaced."));
+        behaviorNotice.add(new JLabel(text("Existing requests are not rewritten automatically. When tagging is enabled,")));
+        behaviorNotice.add(new JLabel(text("only placeholders containing the configured tag are replaced.")));
         panel.add(behaviorNotice, gbc);
 
         boolean enabled;
         String tag;
         while (true) {
-            int result = JOptionPane.showConfirmDialog(mainPanel, panel, "Placeholder Configuration",
+            int result = JOptionPane.showConfirmDialog(mainPanel, panel, text("Tool Configuration"),
                     JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
             if (result != JOptionPane.OK_OPTION) return;
 
@@ -719,22 +767,35 @@ public final class VariableManager {
             tag = tagField.getText().trim();
             if (!enabled || VariableNames.isValidTag(tag)) break;
             JOptionPane.showMessageDialog(mainPanel,
-                    "The tag must start with a letter and contain only letters, numbers, _ or -.",
-                    "Invalid Tag", JOptionPane.ERROR_MESSAGE);
+                    text("The tag must start with a letter and contain only letters, numbers, _ or -."),
+                    text("Invalid Tag"), JOptionPane.ERROR_MESSAGE);
         }
 
         placeholderTagEnabled = enabled;
         if (!tag.isEmpty()) placeholderTag = tag;
+        UiLanguage selectedLanguage = (UiLanguage) languageComboBox.getSelectedItem();
+        boolean languageChanged = selectedLanguage != null && selectedLanguage != uiLanguage;
+        if (selectedLanguage != null) uiLanguage = selectedLanguage;
         savePreferences();
-        updatePlaceholderUsageLabel();
-        tableModel.fireTableDataChanged();
+        if (languageChanged) {
+            createUI();
+        } else {
+            updatePlaceholderUsageLabel();
+            tableModel.fireTableDataChanged();
+        }
     }
 
     private void updatePlaceholderUsageLabel() {
         if (placeholderUsageLabel == null) return;
-        placeholderUsageLabel.setText("Usage: " + placeholderFor("variable") + " for Ungrouped or "
-                + placeholderFor("folder.variable")
-                + " for grouped variables. Right-click a response selection to automate extraction.");
+        if (uiLanguage == UiLanguage.SPANISH) {
+            placeholderUsageLabel.setText("Uso: " + placeholderFor("variable") + " para variables sin carpeta o "
+                    + placeholderFor("folder.variable")
+                    + " para variables agrupadas. Haz clic derecho en una selección de respuesta para automatizar la extracción.");
+        } else {
+            placeholderUsageLabel.setText("Usage: " + placeholderFor("variable") + " for Ungrouped or "
+                    + placeholderFor("folder.variable")
+                    + " for grouped variables. Right-click a response selection to automate extraction.");
+        }
     }
 
     private void updateDetailsPanel(int selectedRow) {
@@ -751,7 +812,7 @@ public final class VariableManager {
             regexField.setText("");
             regexField.setEnabled(false);
             updateRuleButton.setEnabled(false);
-            savedRequestLabel.setText("Saved Request: None");
+            savedRequestLabel.setText(text("Saved Request: None"));
             refreshRequestButton.setEnabled(false);
             sendToRepeaterButton.setEnabled(false);
             editRequestButton.setEnabled(false);
@@ -762,8 +823,8 @@ public final class VariableManager {
         String name = tableModel.variableKeyAt(selectedRow);
         if (name == null) {
             disableDetails(tableModel.isFolderRow(selectedRow)
-                    ? "Select a variable inside this folder to edit its details."
-                    : "Select a variable to edit its details.");
+                    ? text("Select a variable inside this folder to edit its details.")
+                    : text("Select a variable to edit its details."));
             return;
         }
         String val = values.getOrDefault(name, "");
@@ -795,7 +856,7 @@ public final class VariableManager {
 
         // Update refresh request details
         if (rule.getSavedRequestBase64() == null || rule.getSavedRequestBase64().isEmpty()) {
-            savedRequestLabel.setText("Saved Request: None");
+            savedRequestLabel.setText(text("Saved Request: None"));
             refreshRequestButton.setEnabled(false);
             sendToRepeaterButton.setEnabled(false);
             editRequestButton.setEnabled(false);
@@ -804,13 +865,14 @@ public final class VariableManager {
             try {
                 byte[] requestBytes = Base64.getDecoder().decode(rule.getSavedRequestBase64());
                 HttpRequest savedReq = HttpRequest.httpRequest(ByteArray.byteArray(requestBytes));
-                savedRequestLabel.setText("Saved Request: " + savedReq.method() + " " + savedReq.path());
+                savedRequestLabel.setText((uiLanguage == UiLanguage.SPANISH ? "Petición guardada: " : "Saved Request: ")
+                        + savedReq.method() + " " + savedReq.path());
                 refreshRequestButton.setEnabled(true);
                 sendToRepeaterButton.setEnabled(true);
                 editRequestButton.setEnabled(true);
                 updateRuleButton.setEnabled(true);
             } catch (Exception e) {
-                savedRequestLabel.setText("Saved Request: Error parsing request data");
+                savedRequestLabel.setText(text("Saved Request: Error parsing request data"));
                 refreshRequestButton.setEnabled(false);
                 sendToRepeaterButton.setEnabled(false);
                 editRequestButton.setEnabled(false);
@@ -827,7 +889,7 @@ public final class VariableManager {
         sourceComboBox.setSelectedIndex(0);
         regexField.setText("");
         updateRuleButton.setEnabled(false);
-        savedRequestLabel.setText("Saved Request: None");
+        savedRequestLabel.setText(text("Saved Request: None"));
         refreshRequestButton.setEnabled(false);
         sendToRepeaterButton.setEnabled(false);
         editRequestButton.setEnabled(false);
@@ -888,7 +950,7 @@ public final class VariableManager {
                     // Send to Repeater tool natively
                     api.repeater().sendToRepeater(savedReq, "Refresh " + name);
                 } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(mainPanel, "Failed to send request to Repeater: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(mainPanel, text("Failed to send request to Repeater: ") + ex.getMessage(), text("Error"), JOptionPane.ERROR_MESSAGE);
                 }
             }
         }
@@ -905,7 +967,7 @@ public final class VariableManager {
             byte[] requestBytes = Base64.getDecoder().decode(rule.getSavedRequestBase64());
             String rawReqText = new String(requestBytes, StandardCharsets.UTF_8);
 
-            JDialog editDialog = new JDialog(api.userInterface().swingUtils().suiteFrame(), "Edit Saved Request - " + name, Dialog.ModalityType.APPLICATION_MODAL);
+            JDialog editDialog = new JDialog(api.userInterface().swingUtils().suiteFrame(), text("Edit Saved Request - ") + name, Dialog.ModalityType.APPLICATION_MODAL);
             editDialog.setLayout(new BorderLayout(10, 10));
             editDialog.setSize(650, 500);
             editDialog.setLocationRelativeTo(api.userInterface().swingUtils().suiteFrame());
@@ -918,13 +980,13 @@ public final class VariableManager {
             hgbc.insets = new Insets(5, 5, 5, 5);
 
             hgbc.gridx = 0; hgbc.gridy = 0; hgbc.weightx = 0.0;
-            headerPanel.add(new JLabel("Host:"), hgbc);
+            headerPanel.add(new JLabel(text("Host:")), hgbc);
             JTextField hostField = new JTextField(rule.getSavedHost());
             hgbc.gridx = 1; hgbc.weightx = 1.0;
             headerPanel.add(hostField, hgbc);
 
             hgbc.gridx = 2; hgbc.weightx = 0.0;
-            headerPanel.add(new JLabel("Port:"), hgbc);
+            headerPanel.add(new JLabel(text("Port:")), hgbc);
             JTextField portField = new JTextField(String.valueOf(rule.getSavedPort()));
             hgbc.gridx = 3; hgbc.weightx = 0.5;
             headerPanel.add(portField, hgbc);
@@ -945,17 +1007,17 @@ public final class VariableManager {
 
             // Footer buttons
             JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 5));
-            JButton saveButton = new JButton("Save Changes");
-            JButton copyButton = new JButton("Copy to Clipboard");
-            JButton cancelButton = new JButton("Cancel");
+            JButton saveButton = new JButton(text("Save Changes"));
+            JButton copyButton = new JButton(text("Copy to Clipboard"));
+            JButton cancelButton = new JButton(text("Cancel"));
 
             copyButton.addActionListener(e -> {
                 try {
                     StringSelection selection = new StringSelection(requestEditor.getText());
                     Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, selection);
-                    JOptionPane.showMessageDialog(editDialog, "Request copied to clipboard.", "Copied", JOptionPane.INFORMATION_MESSAGE);
+                    JOptionPane.showMessageDialog(editDialog, text("Request copied to clipboard."), text("Copied"), JOptionPane.INFORMATION_MESSAGE);
                 } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(editDialog, "Failed to copy to clipboard: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(editDialog, text("Failed to copy to clipboard: ") + ex.getMessage(), text("Error"), JOptionPane.ERROR_MESSAGE);
                 }
             });
 
@@ -966,13 +1028,13 @@ public final class VariableManager {
                 try {
                     newPort = Integer.parseInt(portField.getText().trim());
                 } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(editDialog, "Invalid port number.", "Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(editDialog, text("Invalid port number."), text("Error"), JOptionPane.ERROR_MESSAGE);
                     return;
                 }
                 boolean newSecure = secureCheckBox.isSelected();
 
                 if (newHost.isEmpty()) {
-                    JOptionPane.showMessageDialog(editDialog, "Host cannot be empty.", "Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(editDialog, text("Host cannot be empty."), text("Error"), JOptionPane.ERROR_MESSAGE);
                     return;
                 }
 
@@ -980,7 +1042,7 @@ public final class VariableManager {
                     // Verify that it is parseable as HTTP request
                     HttpRequest.httpRequest(ByteArray.byteArray(newRawReq.getBytes(StandardCharsets.UTF_8)));
                 } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(editDialog, "Failed to parse HTTP request. Please verify the format.", "Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(editDialog, text("Failed to parse HTTP request. Please verify the format."), text("Error"), JOptionPane.ERROR_MESSAGE);
                     return;
                 }
 
@@ -1017,7 +1079,7 @@ public final class VariableManager {
         if (rule == null || rule.getSavedRequestBase64() == null || rule.getSavedRequestBase64().isEmpty()) return;
 
         updateRuleButton.setEnabled(false);
-        updateRuleButton.setText("Fetching Response...");
+        updateRuleButton.setText(text("Fetching Response..."));
 
         // Run network operation in background thread
         new Thread(() -> {
@@ -1073,7 +1135,7 @@ public final class VariableManager {
                 HttpRequestResponse reqResp = api.http().sendRequest(savedReq);
                 if (reqResp.response() == null) {
                     SwingUtilities.invokeLater(() -> {
-                        JOptionPane.showMessageDialog(mainPanel, "Failed to get response from server.", "Fetch Error", JOptionPane.ERROR_MESSAGE);
+                        JOptionPane.showMessageDialog(mainPanel, text("Failed to get response from server."), text("Fetch Error"), JOptionPane.ERROR_MESSAGE);
                     });
                     return;
                 }
@@ -1093,25 +1155,25 @@ public final class VariableManager {
             } catch (Exception ex) {
                 api.logging().logToError("Error fetching response for extraction: " + ex.getMessage());
                 SwingUtilities.invokeLater(() -> {
-                    JOptionPane.showMessageDialog(mainPanel, "Error fetching response: " + ex.getMessage(), "Fetch Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(mainPanel, text("Error fetching response: ") + ex.getMessage(), text("Fetch Error"), JOptionPane.ERROR_MESSAGE);
                 });
             } finally {
                 SwingUtilities.invokeLater(() -> {
                     updateRuleButton.setEnabled(true);
-                    updateRuleButton.setText("Update Rule from Response...");
+                    updateRuleButton.setText(text("Update Rule from Response..."));
                 });
             }
         }).start();
     }
 
     private void showResponseSelectorDialog(String varName, VariableExtractionRule rule, String responseStr, int rowIndex) {
-        JDialog selectorDialog = new JDialog(api.userInterface().swingUtils().suiteFrame(), "Highlight New Token - " + varName, Dialog.ModalityType.APPLICATION_MODAL);
+        JDialog selectorDialog = new JDialog(api.userInterface().swingUtils().suiteFrame(), text("Highlight New Token - ") + varName, Dialog.ModalityType.APPLICATION_MODAL);
         selectorDialog.setLayout(new BorderLayout(10, 10));
         selectorDialog.setSize(700, 550);
         selectorDialog.setLocationRelativeTo(api.userInterface().swingUtils().suiteFrame());
 
         // Header instructions
-        JLabel instrLabel = new JLabel("Highlight/select the text you want to extract from the response below. The regex will be auto-generated.");
+        JLabel instrLabel = new JLabel(text("Highlight/select the text you want to extract from the response below. The regex will be auto-generated."));
         instrLabel.setBorder(new EmptyBorder(5, 5, 5, 5));
         selectorDialog.add(instrLabel, BorderLayout.NORTH);
 
@@ -1132,7 +1194,7 @@ public final class VariableManager {
 
         // Row 0: Value preview
         sgbc.gridy = 0; sgbc.weightx = 0.0;
-        southPanel.add(new JLabel("Selected Value:"), sgbc);
+        southPanel.add(new JLabel(text("Selected Value:")), sgbc);
         JTextField selectedValField = new JTextField(30);
         selectedValField.setEditable(false);
         sgbc.gridx = 1; sgbc.weightx = 1.0;
@@ -1140,16 +1202,16 @@ public final class VariableManager {
 
         // Row 1: Regex proposed
         sgbc.gridy = 1; sgbc.gridx = 0; sgbc.weightx = 0.0;
-        southPanel.add(new JLabel("Proposed Regex:"), sgbc);
+        southPanel.add(new JLabel(text("Proposed Regex:")), sgbc);
         JTextField regexPropField = new JTextField(30);
         sgbc.gridx = 1; sgbc.weightx = 1.0;
         southPanel.add(regexPropField, sgbc);
 
         // Row 2: Extract from
         sgbc.gridy = 2; sgbc.gridx = 0; sgbc.weightx = 0.0;
-        southPanel.add(new JLabel("Extract From:"), sgbc);
+        southPanel.add(new JLabel(text("Extract From:")), sgbc);
         JComboBox<String> extractSrcCombo = new JComboBox<>(new String[]{
-            "Response Body", "Response Headers", "Request Body", "Request Headers"
+            text("Response Body"), text("Response Headers"), text("Request Body"), text("Request Headers")
         });
         sgbc.gridx = 1; sgbc.weightx = 1.0;
         southPanel.add(extractSrcCombo, sgbc);
@@ -1201,13 +1263,13 @@ public final class VariableManager {
 
         // Action Buttons panel
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 5));
-        JButton saveBtn = new JButton("Save Extraction Rule");
-        JButton cancelBtn = new JButton("Cancel");
+        JButton saveBtn = new JButton(text("Save Extraction Rule"));
+        JButton cancelBtn = new JButton(text("Cancel"));
 
         saveBtn.addActionListener(al -> {
             String finalRegex = regexPropField.getText().trim();
             if (finalRegex.isEmpty()) {
-                JOptionPane.showMessageDialog(selectorDialog, "Please select some text to generate a regex.", "Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(selectorDialog, text("Please select some text to generate a regex."), text("Error"), JOptionPane.ERROR_MESSAGE);
                 return;
             }
             String chosenSource;
@@ -1227,7 +1289,7 @@ public final class VariableManager {
             selectorDialog.dispose();
             updateDetailsPanel(rowIndex);
             // Flash a success notification
-            JOptionPane.showMessageDialog(mainPanel, "Extraction rule updated successfully for variable: " + varName, "Rule Updated", JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(mainPanel, text("Extraction rule updated successfully for variable: ") + varName, text("Rule Updated"), JOptionPane.INFORMATION_MESSAGE);
         });
 
         cancelBtn.addActionListener(al -> selectorDialog.dispose());
@@ -1302,7 +1364,7 @@ public final class VariableManager {
             VariableExtractionRule rule = rules.get(name);
             if (rule != null && rule.getSavedRequestBase64() != null && !rule.getSavedRequestBase64().isEmpty()) {
                 refreshRequestButton.setEnabled(false);
-                refreshRequestButton.setText("Refreshing...");
+                refreshRequestButton.setText(text("Refreshing..."));
                 
                 // Run background thread to comply with BApp responsiveness guidelines
                 new Thread(() -> {
@@ -1310,18 +1372,18 @@ public final class VariableManager {
                         refreshVariableSynchronously(name, rule);
                         SwingUtilities.invokeLater(() -> {
                             JOptionPane.showMessageDialog(mainPanel, 
-                                    "Variable '" + name + "' refreshed successfully.",
-                                    "Refresh Success", JOptionPane.INFORMATION_MESSAGE);
+                                    text("Variable refreshed successfully: ") + name,
+                                    text("Refresh Success"), JOptionPane.INFORMATION_MESSAGE);
                         });
                     } catch (Exception ex) {
                         api.logging().logToError("Error refreshing variable '" + name + "': " + ex.getMessage());
                         SwingUtilities.invokeLater(() -> {
-                            JOptionPane.showMessageDialog(mainPanel, "Error during refresh: " + ex.getMessage(), "Refresh Error", JOptionPane.ERROR_MESSAGE);
+                            JOptionPane.showMessageDialog(mainPanel, text("Error during refresh: ") + ex.getMessage(), text("Refresh Error"), JOptionPane.ERROR_MESSAGE);
                         });
                     } finally {
                         SwingUtilities.invokeLater(() -> {
                             refreshRequestButton.setEnabled(true);
-                            refreshRequestButton.setText("Refresh Variable");
+                            refreshRequestButton.setText(text("Refresh Variable"));
                         });
                     }
                 }).start();
@@ -1469,6 +1531,7 @@ public final class VariableManager {
                 api.persistence().preferences().setString("repeater_variables_extraction_enabled", String.valueOf(extractionEnabled));
                 api.persistence().preferences().setString("repeater_variables_refresh_status_codes", refreshStatusCodes);
                 PlaceholderPreferences.save(api.persistence().preferences()::setString, getPlaceholderStyle());
+                PlaceholderPreferences.saveLanguage(api.persistence().preferences()::setString, uiLanguage);
             } catch (Exception e) {
                 api.logging().logToError("Failed to save variables preferences: " + e.getMessage());
             }
@@ -1578,6 +1641,7 @@ public final class VariableManager {
                         api.persistence().preferences()::getString, api.logging()::logToError);
                 placeholderTagEnabled = placeholderStyle.tagEnabled();
                 placeholderTag = placeholderStyle.tag();
+                uiLanguage = PlaceholderPreferences.loadLanguage(api.persistence().preferences()::getString);
                 String ungroupedPref = api.persistence().preferences().getString("dynamic_variables_ungrouped_expanded");
                 if (ungroupedPref != null) ungroupedExpanded = Boolean.parseBoolean(ungroupedPref);
             } catch (Exception e) {
@@ -1641,11 +1705,11 @@ public final class VariableManager {
 
     private boolean validNewName(String name, String type) {
         if (name == null || name.trim().isEmpty()) {
-            JOptionPane.showMessageDialog(mainPanel, type + " name cannot be empty.", "Invalid Name", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(mainPanel, text(type) + text(" name cannot be empty."), text("Invalid Name"), JOptionPane.ERROR_MESSAGE);
             return false;
         }
         if (!VariableNames.isValidComponent(name)) {
-            JOptionPane.showMessageDialog(mainPanel, type + " names cannot contain '.'.", "Invalid Name", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(mainPanel, text(type) + text(" names cannot contain '.'."), text("Invalid Name"), JOptionPane.ERROR_MESSAGE);
             return false;
         }
         return true;
@@ -1661,13 +1725,13 @@ public final class VariableManager {
     }
 
     private void createFolderDialog() {
-        String name = JOptionPane.showInputDialog(mainPanel, "Folder name:", "New Folder", JOptionPane.PLAIN_MESSAGE);
+        String name = JOptionPane.showInputDialog(mainPanel, text("Folder name:"), text("New Folder"), JOptionPane.PLAIN_MESSAGE);
         if (name == null) return;
         name = name.trim();
         if (!validNewName(name, "Folder")) return;
         synchronized (lock) {
             if (findFolderByName(name) != null) {
-                JOptionPane.showMessageDialog(mainPanel, "A folder with this name already exists.", "Duplicate Folder", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(mainPanel, text("A folder with this name already exists."), text("Duplicate Folder"), JOptionPane.ERROR_MESSAGE);
                 return;
             }
             folders.add(new VariableFolder(name, folders.size()));
@@ -1677,7 +1741,7 @@ public final class VariableManager {
     }
 
     private void createVariableDialog(String folderId) {
-        String name = JOptionPane.showInputDialog(mainPanel, "Variable name:", "New Variable", JOptionPane.PLAIN_MESSAGE);
+        String name = JOptionPane.showInputDialog(mainPanel, text("Variable name:"), text("New Variable"), JOptionPane.PLAIN_MESSAGE);
         if (name == null) return;
         name = name.trim();
         if (!validNewName(name, "Variable")) return;
@@ -1685,7 +1749,7 @@ public final class VariableManager {
         String key = folder == null ? name : folder.getName() + "." + name;
         synchronized (lock) {
             if (values.containsKey(key)) {
-                JOptionPane.showMessageDialog(mainPanel, "Variable '" + key + "' already exists.", "Duplicate Variable", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(mainPanel, text("Variable '") + key + text("' already exists."), text("Duplicate Variable"), JOptionPane.ERROR_MESSAGE);
                 return;
             }
             VariableDefinition definition = new VariableDefinition(name, folderId, "", new VariableExtractionRule(),
@@ -1721,22 +1785,22 @@ public final class VariableManager {
 
     private JPopupMenu createVariablesPopup(int row) {
         TableRow tableRow = tableModel.rowAt(row);
+        VariableDefinition selectedVariable = tableRow == null ? null : tableRow.variable;
         JPopupMenu menu = new JPopupMenu();
-        JMenuItem rename = new JMenuItem("Rename");
+        JMenuItem rename = new JMenuItem(text("Rename"));
         rename.setEnabled(tableRow != null && !tableRow.ungrouped);
         rename.addActionListener(e -> renameNode(tableRow));
-        JMenuItem copy = new JMenuItem("Copy Placeholder");
-        copy.setEnabled(tableRow != null && tableRow.variable != null);
-        copy.addActionListener(e -> Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
-                new StringSelection(placeholderFor(qualifiedName(tableRow.variable))), null));
-        JMenuItem move = new JMenuItem("Move to...");
-        move.setEnabled(tableRow != null && tableRow.variable != null);
-        move.addActionListener(e -> showMoveDialog(tableRow.variable));
-        JMenuItem add = new JMenuItem("New Variable");
+        JMenuItem copy = new JMenuItem(text("Copy Placeholder"));
+        copy.setEnabled(selectedVariable != null);
+        copy.addActionListener(e -> copyPlaceholder(selectedVariable));
+        JMenuItem move = new JMenuItem(text("Move to..."));
+        move.setEnabled(selectedVariable != null);
+        move.addActionListener(e -> SwingUtilities.invokeLater(() -> showMoveDialog(selectedVariable)));
+        JMenuItem add = new JMenuItem(text("New Variable"));
         add.addActionListener(e -> createVariableDialog(tableRow == null ? null
                 : tableRow.folder != null ? tableRow.folder.getId()
                 : tableRow.variable != null ? tableRow.variable.getFolderId() : null));
-        JMenuItem delete = new JMenuItem("Delete");
+        JMenuItem delete = new JMenuItem(text("Delete"));
         delete.setEnabled(tableRow != null && !tableRow.ungrouped);
         delete.addActionListener(e -> deleteNode(tableRow));
         menu.add(rename);
@@ -1748,11 +1812,33 @@ public final class VariableManager {
         return menu;
     }
 
+    private void copyPlaceholder(VariableDefinition definition) {
+        if (definition == null) return;
+        String placeholder = placeholderFor(qualifiedName(definition));
+        try {
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(placeholder), null);
+            showTemporaryStatus(text("Copied ") + placeholder + text(" to the clipboard."));
+        } catch (IllegalStateException | HeadlessException clipboardError) {
+            api.logging().logToError("Failed to copy placeholder: " + clipboardError.getMessage());
+            JOptionPane.showMessageDialog(mainPanel,
+                    text("The placeholder could not be copied to the system clipboard."),
+                    text("Copy Placeholder"), JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void showTemporaryStatus(String message) {
+        if (placeholderUsageLabel == null) return;
+        placeholderUsageLabel.setText(message);
+        javax.swing.Timer restoreTimer = new javax.swing.Timer(2500, e -> updatePlaceholderUsageLabel());
+        restoreTimer.setRepeats(false);
+        restoreTimer.start();
+    }
+
     private void renameNode(TableRow row) {
         if (row == null) return;
         String oldName = row.folder != null ? row.folder.getName() : row.variable.getName();
         String type = row.folder != null ? "Folder" : "Variable";
-        String name = JOptionPane.showInputDialog(mainPanel, type + " name:", oldName);
+        String name = JOptionPane.showInputDialog(mainPanel, text(type) + (uiLanguage == UiLanguage.SPANISH ? ":" : " name:"), oldName);
         if (name == null || oldName.equals(name.trim())) return;
         name = name.trim();
         if (!validNewName(name, type)) return;
@@ -1765,12 +1851,12 @@ public final class VariableManager {
         VariableFolder folder = findFolder(definition.getFolderId());
         String newKey = folder == null ? newName : folder.getName() + "." + newName;
         if (values.containsKey(newKey)) {
-            JOptionPane.showMessageDialog(mainPanel, "Variable '" + newKey + "' already exists.", "Duplicate Variable", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(mainPanel, text("Variable '") + newKey + text("' already exists."), text("Duplicate Variable"), JOptionPane.ERROR_MESSAGE);
             return;
         }
-        if (JOptionPane.showConfirmDialog(mainPanel, "Placeholder will change:\n" + placeholderFor(oldKey)
+        if (JOptionPane.showConfirmDialog(mainPanel, text("Placeholder will change:\n") + placeholderFor(oldKey)
                 + " -> " + placeholderFor(newKey),
-                "Rename Variable", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+                text("Rename Variable"), JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
         definition.setName(newName);
         rebuildRuntimeMapsFromDefinitions();
         savePreferences();
@@ -1780,21 +1866,21 @@ public final class VariableManager {
 
     private void renameFolder(VariableFolder folder, String newName) {
         if (findFolderByName(newName) != null) {
-            JOptionPane.showMessageDialog(mainPanel, "A folder with this name already exists.", "Duplicate Folder", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(mainPanel, text("A folder with this name already exists."), text("Duplicate Folder"), JOptionPane.ERROR_MESSAGE);
             return;
         }
         List<VariableDefinition> children = definitions.stream().filter(v -> folder.getId().equals(v.getFolderId())).toList();
         for (VariableDefinition child : children) {
             String newKey = newName + "." + child.getName();
             if (values.containsKey(newKey) && findDefinitionByKey(newKey) != child) {
-                JOptionPane.showMessageDialog(mainPanel, "Renaming would conflict with '" + newKey + "'.", "Rename Folder", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(mainPanel, text("Renaming would conflict with '") + newKey + "'.", text("Rename Folder"), JOptionPane.ERROR_MESSAGE);
                 return;
             }
         }
-        StringBuilder changes = new StringBuilder("The following placeholders will change:\n");
+        StringBuilder changes = new StringBuilder(text("The following placeholders will change:\n"));
         for (VariableDefinition child : children) changes.append(placeholderFor(qualifiedName(child))).append(" -> ")
                 .append(placeholderFor(newName + "." + child.getName())).append('\n');
-        if (!children.isEmpty() && JOptionPane.showConfirmDialog(mainPanel, changes.toString(), "Rename Folder",
+        if (!children.isEmpty() && JOptionPane.showConfirmDialog(mainPanel, changes.toString(), text("Rename Folder"),
                 JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
         folder.setName(newName);
         rebuildRuntimeMapsFromDefinitions();
@@ -1804,13 +1890,22 @@ public final class VariableManager {
 
     private void showMoveDialog(VariableDefinition definition) {
         List<String> choices = new ArrayList<>();
-        choices.add("Ungrouped");
-        folders.stream().sorted(Comparator.comparingInt(VariableFolder::getPosition)).forEach(f -> choices.add(f.getName()));
-        Object selected = JOptionPane.showInputDialog(mainPanel, "Move variable to:", "Move Variable",
-                JOptionPane.PLAIN_MESSAGE, null, choices.toArray(),
-                findFolder(definition.getFolderId()) == null ? "Ungrouped" : findFolder(definition.getFolderId()).getName());
+        String currentFolderId = definition.getFolderId();
+        if (currentFolderId != null) choices.add(text("Ungrouped"));
+        folders.stream()
+                .filter(folder -> !Objects.equals(folder.getId(), currentFolderId))
+                .sorted(Comparator.comparingInt(VariableFolder::getPosition))
+                .forEach(folder -> choices.add(folder.getName()));
+        if (choices.isEmpty()) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    text("Create another folder before moving this variable."),
+                    text("Move Variable"), JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        Object selected = JOptionPane.showInputDialog(mainPanel, text("Move variable to:"), text("Move Variable"),
+                JOptionPane.PLAIN_MESSAGE, null, choices.toArray(), choices.get(0));
         if (selected == null) return;
-        VariableFolder target = "Ungrouped".equals(selected) ? null : findFolderByName(selected.toString());
+        VariableFolder target = text("Ungrouped").equals(selected) ? null : findFolderByName(selected.toString());
         moveDefinition(definition, target == null ? null : target.getId(), countVariablesInFolder(target == null ? null : target.getId()), true);
     }
 
@@ -1819,11 +1914,11 @@ public final class VariableManager {
         VariableFolder target = findFolder(targetFolderId);
         String newKey = target == null ? definition.getName() : target.getName() + "." + definition.getName();
         if (!oldKey.equals(newKey) && values.containsKey(newKey)) {
-            JOptionPane.showMessageDialog(mainPanel, "Variable '" + newKey + "' already exists.", "Move Variable", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(mainPanel, text("Variable '") + newKey + text("' already exists."), text("Move Variable"), JOptionPane.ERROR_MESSAGE);
             return false;
         }
         if (confirm && !oldKey.equals(newKey) && JOptionPane.showConfirmDialog(mainPanel,
-                "Placeholder will change:\n" + placeholderFor(oldKey) + " -> " + placeholderFor(newKey), "Move Variable",
+                text("Placeholder will change:\n") + placeholderFor(oldKey) + " -> " + placeholderFor(newKey), text("Move Variable"),
                 JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return false;
         String oldFolderId = definition.getFolderId();
         List<VariableDefinition> oldGroup = new ArrayList<>(definitions.stream()
@@ -1858,20 +1953,20 @@ public final class VariableManager {
         if (row == null || row.ungrouped) return;
         if (row.variable != null) {
             String key = qualifiedName(row.variable);
-            if (JOptionPane.showConfirmDialog(mainPanel, "Delete variable '" + key + "'?", "Delete Variable",
+            if (JOptionPane.showConfirmDialog(mainPanel, text("Delete variable '") + key + "'?", text("Delete Variable"),
                     JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
             definitions.remove(row.variable);
         } else if (row.folder != null) {
             List<VariableDefinition> children = definitions.stream().filter(v -> row.folder.getId().equals(v.getFolderId())).toList();
             if (!children.isEmpty()) {
-                Object[] options = {"Move variables to Ungrouped", "Delete folder and variables", "Cancel"};
-                int choice = JOptionPane.showOptionDialog(mainPanel, "Folder contains " + children.size() + " variables.",
-                        "Delete Folder", JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[2]);
+                Object[] options = {text("Move variables to Ungrouped"), text("Delete folder and variables"), text("Cancel")};
+                int choice = JOptionPane.showOptionDialog(mainPanel, text("Folder contains ") + children.size() + text(" variables."),
+                        text("Delete Folder"), JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[2]);
                 if (choice == 0) {
                     for (VariableDefinition child : children) {
                         if (values.containsKey(child.getName()) && findDefinitionByKey(child.getName()) != child) {
-                            JOptionPane.showMessageDialog(mainPanel, "Cannot move: '" + child.getName() + "' already exists in Ungrouped.",
-                                    "Delete Folder", JOptionPane.ERROR_MESSAGE);
+                            JOptionPane.showMessageDialog(mainPanel, text("Cannot move: '") + child.getName() + text("' already exists in Ungrouped."),
+                                    text("Delete Folder"), JOptionPane.ERROR_MESSAGE);
                             return;
                         }
                     }
@@ -2005,7 +2100,7 @@ public final class VariableManager {
 
     private class VariablesTableModel extends AbstractTableModel {
         private static final long serialVersionUID = 1L;
-        private final String[] columns = {"Variable Name", "Current Value", "Auto Extract?"};
+        private final String[] columns = {text("Variable Name"), text("Current Value"), text("Auto Extract?")};
 
         private List<TableRow> rows() {
             List<TableRow> result = new ArrayList<>();
@@ -2020,7 +2115,7 @@ public final class VariableManager {
             List<VariableDefinition> children = definitions.stream()
                     .filter(v -> Objects.equals(folderId, v.getFolderId()))
                     .sorted(Comparator.comparingInt(VariableDefinition::getPosition)).toList();
-            String groupName = ungrouped ? "Ungrouped" : folder.getName();
+            String groupName = ungrouped ? text("Ungrouped") : folder.getName();
             boolean groupMatches = variableSearch.isEmpty() || groupName.toLowerCase(Locale.ROOT).contains(variableSearch);
             List<VariableDefinition> matches = children.stream().filter(v -> variableSearch.isEmpty()
                     || v.getName().toLowerCase(Locale.ROOT).contains(variableSearch)
@@ -2058,7 +2153,7 @@ public final class VariableManager {
                 if (row.folderRow) {
                     if (columnIndex != 0) return "";
                     boolean expanded = row.ungrouped ? ungroupedExpanded : row.folder.isExpanded();
-                    String name = row.ungrouped ? "Ungrouped" : row.folder.getName();
+                    String name = row.ungrouped ? text("Ungrouped") : row.folder.getName();
                     return (expanded ? "▾ " : "▸ ") + "📁 " + name + " (" +
                             countVariablesInFolder(row.ungrouped ? null : row.folder.getId()) + ")";
                 }
@@ -2071,7 +2166,7 @@ public final class VariableManager {
                         return val.length() > 50 ? val.substring(0, 47) + "..." : val;
                     case 2:
                         VariableExtractionRule rule = rules.get(name);
-                        return (rule != null && rule.isEnabled()) ? "Yes" : "No";
+                        return (rule != null && rule.isEnabled()) ? text("Yes") : text("No");
                 }
             }
             return null;
