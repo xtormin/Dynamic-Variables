@@ -1,7 +1,9 @@
 package burp;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.core.ByteArray;
 import burp.api.montoya.core.ToolType;
+import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.handler.*;
 import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.HttpRequestResponse;
@@ -140,7 +142,7 @@ public class VariableHttpHandler implements HttpHandler {
             if (!responseReceived.toolSource().isFromTool(ToolType.EXTENSIONS)) {
                 HttpRequest initiatingRequest = responseReceived.initiatingRequest();
                 if (initiatingRequest != null) {
-                    runExtraction(initiatingRequest.path(), responseReceived.headers(), responseReceived.bodyToString());
+                    runExtraction(initiatingRequest, responseReceived.headers(), responseReceived.bodyToString());
                 }
             }
         }
@@ -219,7 +221,7 @@ public class VariableHttpHandler implements HttpHandler {
                         // Extract any new tokens from the refreshed response
                         if (variableManager.isExtractionEnabled()) {
                             runExtraction(
-                                    refreshedResult.request().path(), 
+                                    refreshedResult.request(),
                                     refreshedResult.response().headers(), 
                                     refreshedResult.response().bodyToString()
                             );
@@ -237,8 +239,10 @@ public class VariableHttpHandler implements HttpHandler {
         return ResponseReceivedAction.continueWith(responseReceived);
     }
 
-    private void runExtraction(String path, List<HttpHeader> headers, String body) {
+    private void runExtraction(HttpRequest initiatingRequest, List<HttpHeader> headers, String body) {
         Map<String, VariableExtractionRule> rules = variableManager.getRules();
+        Map<String, String> variables = variableManager.getVariables();
+        String path = initiatingRequest.path();
 
         for (Map.Entry<String, VariableExtractionRule> entry : rules.entrySet()) {
             String varName = entry.getKey();
@@ -259,7 +263,10 @@ public class VariableHttpHandler implements HttpHandler {
                     }
                 }
 
-                if (pathMatches) {
+                // Rules for the same endpoint can represent different users. The URL and
+                // extraction regex alone are not enough to identify which variable owns a
+                // response, so also match it against that variable's saved request.
+                if (pathMatches && matchesSavedRequest(initiatingRequest, rule, variables)) {
                     String sourceContent = "";
                     if ("headers".equalsIgnoreCase(rule.getSource())) {
                         StringBuilder sb = new StringBuilder();
@@ -288,6 +295,77 @@ public class VariableHttpHandler implements HttpHandler {
                 }
             }
         }
+    }
+
+    private boolean matchesSavedRequest(HttpRequest actualRequest, VariableExtractionRule rule,
+                                        Map<String, String> variables) {
+        String savedRequestBase64 = rule.getSavedRequestBase64();
+        if (savedRequestBase64 == null || savedRequestBase64.isEmpty()) {
+            // Preserve auto-extraction behavior for legacy rules that do not have a
+            // refresh request associated with them.
+            return true;
+        }
+
+        try {
+            byte[] requestBytes = java.util.Base64.getDecoder().decode(savedRequestBase64);
+            HttpRequest expectedRequest = HttpRequest.httpRequest(ByteArray.byteArray(requestBytes));
+
+            if (!expectedRequest.method().equalsIgnoreCase(actualRequest.method())) {
+                return false;
+            }
+
+            HttpService actualService = actualRequest.httpService();
+            if (actualService == null
+                    || !rule.getSavedHost().equalsIgnoreCase(actualService.host())
+                    || rule.getSavedPort() != actualService.port()
+                    || rule.isSavedSecure() != actualService.secure()) {
+                return false;
+            }
+
+            String expectedPath = replacePlaceholders(expectedRequest.path(), variables);
+            if (!expectedPath.equals(actualRequest.path())) {
+                return false;
+            }
+
+            String expectedBody = replacePlaceholders(expectedRequest.bodyToString(), variables);
+            String actualBody = actualRequest.bodyToString();
+            if (!normalizedBody(expectedBody).equals(normalizedBody(actualBody))) {
+                return false;
+            }
+
+            // Header values can also distinguish users (for example Basic auth). Ignore
+            // transport headers that Burp may recalculate and allow additional runtime
+            // headers, but require every identity-bearing saved header to still match.
+            for (HttpHeader expectedHeader : expectedRequest.headers()) {
+                if (isTransportHeader(expectedHeader.name())) {
+                    continue;
+                }
+
+                String expectedValue = replacePlaceholders(expectedHeader.value(), variables);
+                boolean headerMatches = actualRequest.headers().stream().anyMatch(actualHeader ->
+                        actualHeader.name().equalsIgnoreCase(expectedHeader.name())
+                                && actualHeader.value().equals(expectedValue));
+                if (!headerMatches) {
+                    return false;
+                }
+            }
+
+            return true;
+        } catch (Exception e) {
+            api.logging().logToError("Could not match saved refresh request: " + e.getMessage());
+            return false;
+        }
+    }
+
+    private boolean isTransportHeader(String name) {
+        return "Host".equalsIgnoreCase(name)
+                || "Content-Length".equalsIgnoreCase(name)
+                || "Connection".equalsIgnoreCase(name)
+                || "Proxy-Connection".equalsIgnoreCase(name);
+    }
+
+    private String normalizedBody(String body) {
+        return body == null ? "" : body;
     }
 
     private String replacePlaceholders(String text, Map<String, String> variables) {
