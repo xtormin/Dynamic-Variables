@@ -105,7 +105,7 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         Frame suiteFrame = api.userInterface().swingUtils().suiteFrame();
         JDialog dialog = new JDialog(suiteFrame, "Assign to Variable", Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setLayout(new BorderLayout(10, 10));
-        dialog.setSize(500, 420); // slightly taller to accommodate the new checkbox
+        dialog.setSize(520, 465);
         dialog.setLocationRelativeTo(suiteFrame);
 
         JPanel panel = new JPanel(new GridBagLayout());
@@ -115,12 +115,26 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.gridx = 0;
 
-        // Row 0: Variable Name (Editable ComboBox)
+        // Row 0: Folder
         gbc.gridy = 0;
+        gbc.weightx = 0.0;
+        panel.add(new JLabel("Folder:"), gbc);
+
+        List<String> folderNames = variableManager.getFolderNames();
+        JComboBox<String> folderComboBox = new JComboBox<>();
+        folderComboBox.addItem("Ungrouped");
+        for (String folderName : folderNames) folderComboBox.addItem(folderName);
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        panel.add(folderComboBox, gbc);
+
+        // Row 1: Variable Name (Editable ComboBox)
+        gbc.gridy = 1;
+        gbc.gridx = 0;
         gbc.weightx = 0.0;
         panel.add(new JLabel("Variable Name:"), gbc);
 
-        List<String> names = variableManager.getVariableNames();
+        List<String> names = variableManager.getVariableNamesInFolder("");
         JComboBox<String> nameComboBox = new JComboBox<>(names.toArray(new String[0]));
         nameComboBox.setEditable(true);
         if (!names.isEmpty()) {
@@ -130,8 +144,17 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         gbc.weightx = 1.0;
         panel.add(nameComboBox, gbc);
 
-        // Row 1: Selected Value (Read-only scrollpane)
-        gbc.gridy = 1;
+        folderComboBox.addActionListener(e -> {
+            Object editorValue = nameComboBox.getEditor().getItem();
+            String folder = folderComboBox.getSelectedIndex() == 0 ? "" : folderComboBox.getSelectedItem().toString();
+            nameComboBox.removeAllItems();
+            for (String variable : variableManager.getVariableNamesInFolder(folder)) nameComboBox.addItem(variable);
+            if (nameComboBox.getItemCount() > 0) nameComboBox.setSelectedIndex(0);
+            else if (editorValue != null) nameComboBox.getEditor().setItem(editorValue);
+        });
+
+        // Row 2: Selected Value (Read-only scrollpane)
+        gbc.gridy = 2;
         gbc.gridx = 0;
         gbc.weightx = 0.0;
         panel.add(new JLabel("Selected Value:"), gbc);
@@ -146,8 +169,8 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         gbc.weightx = 1.0;
         panel.add(new JScrollPane(valuePreview), gbc);
 
-        // Row 2: Match URL/Path
-        gbc.gridy = 2;
+        // Row 3: Match URL/Path
+        gbc.gridy = 3;
         gbc.gridx = 0;
         gbc.weightx = 0.0;
         panel.add(new JLabel("Match URL/Path (Regex):"), gbc);
@@ -157,8 +180,8 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         gbc.weightx = 1.0;
         panel.add(pathField, gbc);
 
-        // Row 3: Extract From
-        gbc.gridy = 3;
+        // Row 4: Extract From
+        gbc.gridy = 4;
         gbc.gridx = 0;
         gbc.weightx = 0.0;
         panel.add(new JLabel("Extract From:"), gbc);
@@ -179,8 +202,8 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         gbc.weightx = 1.0;
         panel.add(sourceComboBox, gbc);
 
-        // Row 4: Regex Pattern
-        gbc.gridy = 4;
+        // Row 5: Regex Pattern
+        gbc.gridy = 5;
         gbc.gridx = 0;
         gbc.weightx = 0.0;
         panel.add(new JLabel("Regex Pattern (1 group):"), gbc);
@@ -190,8 +213,8 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         gbc.weightx = 1.0;
         panel.add(regexField, gbc);
 
-        // Row 5: Save Request checkbox
-        gbc.gridy = 5;
+        // Row 6: Save Request checkbox
+        gbc.gridy = 6;
         gbc.gridx = 0;
         gbc.gridwidth = 2;
         JCheckBox saveRequestCheckBox = new JCheckBox("Save this request to refresh token in the future", true);
@@ -211,6 +234,11 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
                 return;
             }
             String varName = selectedItem.toString().trim();
+            if (varName.contains(".")) {
+                JOptionPane.showMessageDialog(dialog, "Variable names cannot contain '.'. Choose the folder separately.", "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            String folderName = folderComboBox.getSelectedIndex() == 0 ? "" : folderComboBox.getSelectedItem().toString();
             String pathFilter = pathField.getText().trim();
             String chosenSource;
             switch (sourceComboBox.getSelectedIndex()) {
@@ -235,8 +263,9 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
             }
 
             // Save variables & rules
-            variableManager.addOrUpdateExtractionRule(
-                    varName, 
+            variableManager.addOrUpdateExtractionRuleInFolder(
+                    folderName,
+                    varName,
                     selectedText, 
                     true, 
                     pathFilter, 

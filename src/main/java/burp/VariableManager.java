@@ -14,7 +14,10 @@ import javax.swing.border.TitledBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
 import java.awt.datatransfer.UnsupportedFlavorException;
@@ -27,12 +30,16 @@ import java.util.*;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class VariableManager {
+public final class VariableManager {
     private final MontoyaApi api;
     private final Object lock = new Object();
     private final List<String> variableNames = new ArrayList<>();
     private final Map<String, String> values = new ConcurrentHashMap<>();
     private final Map<String, VariableExtractionRule> rules = new ConcurrentHashMap<>();
+    private final List<VariableFolder> folders = new ArrayList<>();
+    private final List<VariableDefinition> definitions = new ArrayList<>();
+    private String variableSearch = "";
+    private static final String STATE_V2_KEY = "dynamic_variables_state_v2";
 
     private boolean replacementMasterEnabled = true;
     private boolean replacementEnabled = true;
@@ -99,6 +106,54 @@ public class VariableManager {
         }
     }
 
+    public List<String> getFolderNames() {
+        synchronized (lock) {
+            return folders.stream().sorted(Comparator.comparingInt(VariableFolder::getPosition))
+                    .map(VariableFolder::getName).toList();
+        }
+    }
+
+    public String getFolderNameForVariable(String qualifiedName) {
+        synchronized (lock) {
+            VariableDefinition definition = findDefinitionByKey(qualifiedName);
+            VariableFolder folder = definition == null ? null : findFolder(definition.getFolderId());
+            return folder == null ? "" : folder.getName();
+        }
+    }
+
+    public List<String> getVariableNamesInFolder(String folderName) {
+        synchronized (lock) {
+            VariableFolder folder = folderName == null || folderName.isEmpty() ? null : findFolderByName(folderName);
+            String folderId = folder == null ? null : folder.getId();
+            return definitions.stream().filter(definition -> Objects.equals(folderId, definition.getFolderId()))
+                    .sorted(Comparator.comparingInt(VariableDefinition::getPosition))
+                    .map(VariableDefinition::getName).toList();
+        }
+    }
+
+    public String qualifyVariableName(String folderName, String localName) {
+        return VariableNames.qualify(folderName, localName);
+    }
+
+    public void addOrUpdateExtractionRuleInFolder(String folderName, String localName, String value,
+                                                   boolean ruleEnabled, String matchUrl, String source,
+                                                   String regex, String reqBase64, String host, int port, boolean secure) {
+        String qualified = qualifyVariableName(folderName, localName);
+        synchronized (lock) {
+            if (!variableNames.contains(qualified)) {
+                VariableFolder folder = folderName == null || folderName.isEmpty() ? null : findFolderByName(folderName);
+                if (folderName != null && !folderName.isEmpty() && folder == null) {
+                    throw new IllegalArgumentException("Folder does not exist: " + folderName);
+                }
+                definitions.add(new VariableDefinition(localName, folder == null ? null : folder.getId(), value,
+                        new VariableExtractionRule(), countVariablesInFolder(folder == null ? null : folder.getId())));
+                rebuildRuntimeMapsFromDefinitions();
+            }
+        }
+        addOrUpdateExtractionRule(qualified, value, ruleEnabled, matchUrl, source, regex,
+                reqBase64, host, port, secure);
+    }
+
     public boolean isReplacementMasterEnabled() {
         return replacementMasterEnabled;
     }
@@ -144,10 +199,12 @@ public class VariableManager {
     public void updateVariableValue(String name, String value) {
         synchronized (lock) {
             values.put(name, value);
+            VariableDefinition definition = findDefinitionByKey(name);
+            if (definition != null) definition.setValue(value);
             savePreferences();
         }
         SwingUtilities.invokeLater(() -> {
-            int row = variableNames.indexOf(name);
+            int row = tableModel == null ? -1 : tableModel.findVariableRow(name);
             if (row >= 0) {
                 tableModel.fireTableCellUpdated(row, 1);
                 // If this row is currently selected, update the text area as well
@@ -166,17 +223,35 @@ public class VariableManager {
         synchronized (lock) {
             if (!variableNames.contains(name)) {
                 variableNames.add(name);
+                String folderName = "";
+                String localName = name;
+                int dot = name.indexOf('.');
+                if (dot > 0) {
+                    VariableFolder candidate = findFolderByName(name.substring(0, dot));
+                    if (candidate != null) {
+                        folderName = candidate.getName();
+                        localName = name.substring(dot + 1);
+                    }
+                }
+                VariableFolder folder = folderName.isEmpty() ? null : findFolderByName(folderName);
+                definitions.add(new VariableDefinition(localName, folder == null ? null : folder.getId(), value,
+                        new VariableExtractionRule(), countVariablesInFolder(folder == null ? null : folder.getId())));
             }
             values.put(name, value);
             VariableExtractionRule rule = new VariableExtractionRule(ruleEnabled, matchUrl, source, regex, 
                     reqBase64, host, port, secure);
             rules.put(name, rule);
+            VariableDefinition definition = findDefinitionByKey(name);
+            if (definition != null) {
+                definition.setValue(value);
+                definition.setRule(rule);
+            }
             savePreferences();
         }
         SwingUtilities.invokeLater(() -> {
             tableModel.fireTableDataChanged();
             // Highlight the row that was added or updated
-            int row = variableNames.indexOf(name);
+            int row = tableModel.findVariableRow(name);
             if (row >= 0) {
                 variablesTable.setRowSelectionInterval(row, row);
                 updateDetailsPanel(row);
@@ -291,7 +366,41 @@ public class VariableManager {
         variablesTable.setDragEnabled(true);
         variablesTable.setDropMode(DropMode.INSERT_ROWS);
         variablesTable.setTransferHandler(new VariableRowTransferHandler());
-        variablesTable.setToolTipText("Drag a row to reorder variables.");
+        variablesTable.setToolTipText("Drag to reorder or move variables between folders.");
+        variablesTable.getColumnModel().getColumn(0).setCellRenderer(new HierarchyCellRenderer());
+        DefaultCellEditor variableNameEditor = new DefaultCellEditor(new JTextField());
+        variableNameEditor.setClickCountToStart(2);
+        variablesTable.getColumnModel().getColumn(0).setCellEditor(variableNameEditor);
+        variablesTable.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
+                .put(KeyStroke.getKeyStroke("F2"), "renameSelectedNode");
+        variablesTable.getActionMap().put("renameSelectedNode", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                int row = variablesTable.getSelectedRow();
+                TableRow selected = tableModel.rowAt(row);
+                if (selected == null || selected.ungrouped) return;
+                if (selected.variable != null) {
+                    variablesTable.editCellAt(row, 0);
+                    Component editor = variablesTable.getEditorComponent();
+                    if (editor != null) editor.requestFocusInWindow();
+                } else {
+                    renameNode(selected);
+                }
+            }
+        });
+        variablesTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int row = variablesTable.rowAtPoint(e.getPoint());
+                if (row < 0) return;
+                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2 && tableModel.isFolderRow(row)) {
+                    toggleFolderAt(row);
+                } else if (SwingUtilities.isRightMouseButton(e)) {
+                    variablesTable.setRowSelectionInterval(row, row);
+                    createVariablesPopup(row).show(variablesTable, e.getX(), e.getY());
+                }
+            }
+        });
         variablesTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 int selectedRow = variablesTable.getSelectedRow();
@@ -299,49 +408,30 @@ public class VariableManager {
             }
         });
 
-        JScrollPane tableScrollPane = new JScrollPane(variablesTable);
-        leftPanel.add(tableScrollPane, BorderLayout.CENTER);
+        JPanel navigationPanel = new JPanel(new BorderLayout(5, 5));
+        JTextField searchField = new JTextField();
+        searchField.putClientProperty("JTextField.placeholderText", "Search folders or variables");
+        searchField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
+            variableSearch = searchField.getText().trim().toLowerCase(Locale.ROOT);
+            tableModel.fireTableDataChanged();
+            updateDetailsPanel(-1);
+        }));
+        navigationPanel.add(searchField, BorderLayout.NORTH);
+        navigationPanel.add(new JScrollPane(variablesTable), BorderLayout.CENTER);
+        leftPanel.add(navigationPanel, BorderLayout.CENTER);
 
         // Buttons Panel under Table
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
-        JButton addButton = new JButton("Add Variable");
+        JButton addFolderButton = new JButton("New Folder");
+        JButton addButton = new JButton("New Variable");
         JButton deleteButton = new JButton("Delete Selected");
         JButton clearButton = new JButton("Clear All");
 
-        addButton.addActionListener(e -> {
-            String name = JOptionPane.showInputDialog(mainPanel, "Enter variable name:", "Add Variable", JOptionPane.PLAIN_MESSAGE);
-            if (name != null && !name.trim().isEmpty()) {
-                name = name.trim();
-                synchronized (lock) {
-                    if (variableNames.contains(name)) {
-                        JOptionPane.showMessageDialog(mainPanel, "Variable already exists!", "Error", JOptionPane.ERROR_MESSAGE);
-                        return;
-                    }
-                    variableNames.add(name);
-                    values.put(name, "");
-                    rules.put(name, new VariableExtractionRule());
-                    savePreferences();
-                }
-                tableModel.fireTableDataChanged();
-                int newRow = variableNames.indexOf(name);
-                variablesTable.setRowSelectionInterval(newRow, newRow);
-            }
-        });
+        addFolderButton.addActionListener(e -> createFolderDialog());
+        addButton.addActionListener(e -> createVariableDialog(selectedFolderId()));
 
         deleteButton.addActionListener(e -> {
-            int selectedRow = variablesTable.getSelectedRow();
-            if (selectedRow >= 0) {
-                String name = variableNames.get(selectedRow);
-                synchronized (lock) {
-                    variableNames.remove(selectedRow);
-                    values.remove(name);
-                    rules.remove(name);
-                    savePreferences();
-                }
-                tableModel.fireTableDataChanged();
-                valueTextArea.setText("");
-                clearRuleFields();
-            }
+            deleteSelectedNode();
         });
 
         clearButton.addActionListener(e -> {
@@ -351,6 +441,8 @@ public class VariableManager {
                     variableNames.clear();
                     values.clear();
                     rules.clear();
+                    definitions.clear();
+                    folders.clear();
                     savePreferences();
                 }
                 tableModel.fireTableDataChanged();
@@ -359,6 +451,7 @@ public class VariableManager {
             }
         });
 
+        buttonPanel.add(addFolderButton);
         buttonPanel.add(addButton);
         buttonPanel.add(deleteButton);
         buttonPanel.add(clearButton);
@@ -394,11 +487,13 @@ public class VariableManager {
             private void updateValue() {
                 if (isUpdatingUI) return;
                 int selectedRow = variablesTable.getSelectedRow();
-                if (selectedRow >= 0) {
-                    String name = variableNames.get(selectedRow);
+                String name = tableModel.variableKeyAt(selectedRow);
+                if (name != null) {
                     String val = valueTextArea.getText();
                     synchronized (lock) {
                         values.put(name, val);
+                        VariableDefinition definition = findDefinitionByKey(name);
+                        if (definition != null) definition.setValue(val);
                         savePreferences();
                     }
                     tableModel.fireTableCellUpdated(selectedRow, 1);
@@ -531,7 +626,7 @@ public class VariableManager {
         mainPanel.add(splitPane, BorderLayout.CENTER);
 
         // --- FOOTER INSTRUCTIONS ---
-        JLabel footerLabel = new JLabel("Usage: Define variables, use {{variable_name}} in Repeater/Intruder/Scanner. Highlight response, right-click -> Assign to Variable to automate.");
+        JLabel footerLabel = new JLabel("Usage: {{variable}} for Ungrouped or {{folder.variable}} for grouped variables. Right-click a response selection to automate extraction.");
         footerLabel.setBorder(new EmptyBorder(5, 5, 5, 5));
         mainPanel.add(footerLabel, BorderLayout.SOUTH);
 
@@ -561,7 +656,13 @@ public class VariableManager {
             return;
         }
 
-        String name = variableNames.get(selectedRow);
+        String name = tableModel.variableKeyAt(selectedRow);
+        if (name == null) {
+            disableDetails(tableModel.isFolderRow(selectedRow)
+                    ? "Select a variable inside this folder to edit its details."
+                    : "Select a variable to edit its details.");
+            return;
+        }
         String val = values.getOrDefault(name, "");
         VariableExtractionRule rule = rules.getOrDefault(name, new VariableExtractionRule());
 
@@ -633,8 +734,8 @@ public class VariableManager {
     private void updateActiveRuleFromUI() {
         if (isUpdatingUI) return;
         int selectedRow = variablesTable.getSelectedRow();
-        if (selectedRow >= 0) {
-            String name = variableNames.get(selectedRow);
+        String name = tableModel.variableKeyAt(selectedRow);
+        if (name != null) {
             boolean ruleEnabled = ruleEnabledCheckBox.isSelected();
             String matchUrl = matchUrlField.getText().trim();
             String source;
@@ -656,6 +757,8 @@ public class VariableManager {
                 VariableExtractionRule rule = new VariableExtractionRule(ruleEnabled, matchUrl, source, regex,
                         reqBase64, host, port, secure);
                 rules.put(name, rule);
+                VariableDefinition definition = findDefinitionByKey(name);
+                if (definition != null) definition.setRule(rule);
                 savePreferences();
             }
             // Update Table display
@@ -665,8 +768,8 @@ public class VariableManager {
 
     private void triggerSendToRepeater() {
         int selectedRow = variablesTable.getSelectedRow();
-        if (selectedRow >= 0) {
-            String name = variableNames.get(selectedRow);
+        String name = tableModel.variableKeyAt(selectedRow);
+        if (name != null) {
             VariableExtractionRule rule = rules.get(name);
             if (rule != null && rule.getSavedRequestBase64() != null && !rule.getSavedRequestBase64().isEmpty()) {
                 try {
@@ -690,8 +793,8 @@ public class VariableManager {
 
     private void showEditRequestDialog() {
         int selectedRow = variablesTable.getSelectedRow();
-        if (selectedRow < 0) return;
-        String name = variableNames.get(selectedRow);
+        String name = tableModel.variableKeyAt(selectedRow);
+        if (name == null) return;
         VariableExtractionRule rule = rules.get(name);
         if (rule == null || rule.getSavedRequestBase64().isEmpty()) return;
 
@@ -805,8 +908,8 @@ public class VariableManager {
 
     private void triggerUpdateRuleFromResponse() {
         int selectedRow = variablesTable.getSelectedRow();
-        if (selectedRow < 0) return;
-        String name = variableNames.get(selectedRow);
+        String name = tableModel.variableKeyAt(selectedRow);
+        if (name == null) return;
         VariableExtractionRule rule = rules.get(name);
         if (rule == null || rule.getSavedRequestBase64() == null || rule.getSavedRequestBase64().isEmpty()) return;
 
@@ -1090,8 +1193,8 @@ public class VariableManager {
 
     private void triggerBackgroundRefresh() {
         int selectedRow = variablesTable.getSelectedRow();
-        if (selectedRow >= 0) {
-            String name = variableNames.get(selectedRow);
+        String name = tableModel.variableKeyAt(selectedRow);
+        if (name != null) {
             VariableExtractionRule rule = rules.get(name);
             if (rule != null && rule.getSavedRequestBase64() != null && !rule.getSavedRequestBase64().isEmpty()) {
                 refreshRequestButton.setEnabled(false);
@@ -1220,22 +1323,15 @@ public class VariableManager {
     }
 
     private String replacePlaceholders(String text, Map<String, String> variables) {
-        if (text == null || text.isEmpty()) {
-            return text;
-        }
-        String result = text;
-        for (Map.Entry<String, String> entry : variables.entrySet()) {
-            String placeholder = "{{" + entry.getKey() + "}}";
-            if (result.contains(placeholder)) {
-                result = result.replace(placeholder, entry.getValue());
-            }
-        }
-        return result;
+        return VariableNames.replacePlaceholders(text, variables);
     }
 
     public void savePreferences() {
         synchronized (lock) {
             try {
+                synchronizeDefinitionsFromRuntimeMaps();
+                api.persistence().preferences().setString(STATE_V2_KEY,
+                        VariableStateCodec.encode(folders, definitions));
                 // Save variable values
                 StringBuilder valSb = new StringBuilder();
                 for (String name : variableNames) {
@@ -1280,6 +1376,24 @@ public class VariableManager {
                 variableNames.clear();
                 values.clear();
                 rules.clear();
+                folders.clear();
+                definitions.clear();
+
+                String stateV2 = api.persistence().preferences().getString(STATE_V2_KEY);
+                boolean loadedV2 = false;
+                if (stateV2 != null && !stateV2.isEmpty()) {
+                    try {
+                        VariableStateCodec.State state = VariableStateCodec.decode(stateV2);
+                        folders.addAll(state.folders());
+                        definitions.addAll(state.variables());
+                        rebuildRuntimeMapsFromDefinitions();
+                        loadedV2 = true;
+                    } catch (Exception stateError) {
+                        api.logging().logToError("Invalid v2 variable state; falling back to legacy preferences: "
+                                + stateError.getMessage());
+                    }
+                }
+                if (!loadedV2) {
 
                 String valPref = api.persistence().preferences().getString("repeater_variables_values");
                 if (valPref != null && !valPref.isEmpty()) {
@@ -1316,6 +1430,10 @@ public class VariableManager {
                         rules.put(name, new VariableExtractionRule());
                     }
                 }
+                    definitions.addAll(VariableStateCodec.migrateLegacy(variableNames, values, rules).variables());
+                    api.persistence().preferences().setString(STATE_V2_KEY,
+                            VariableStateCodec.encode(folders, definitions));
+                }
 
                 String replaceMasterPref = api.persistence().preferences().getString("repeater_variables_replacement_master_enabled");
                 if (replaceMasterPref != null) {
@@ -1351,39 +1469,322 @@ public class VariableManager {
                 if (codesPref != null) {
                     refreshStatusCodes = codesPref;
                 }
+                String ungroupedPref = api.persistence().preferences().getString("dynamic_variables_ungrouped_expanded");
+                if (ungroupedPref != null) ungroupedExpanded = Boolean.parseBoolean(ungroupedPref);
             } catch (Exception e) {
                 api.logging().logToError("Failed to load variables preferences: " + e.getMessage());
             }
         }
     }
 
-    private void moveVariable(int sourceRow, int dropRow) {
-        int targetRow;
+    private void disableDetails(String message) {
+        updateDetailsPanel(-1);
+        savedRequestLabel.setText(message);
+    }
+
+    private VariableFolder findFolder(String id) {
+        if (id == null) return null;
+        return folders.stream().filter(folder -> folder.getId().equals(id)).findFirst().orElse(null);
+    }
+
+    private VariableFolder findFolderByName(String name) {
+        return folders.stream().filter(folder -> folder.getName().equals(name)).findFirst().orElse(null);
+    }
+
+    private VariableDefinition findDefinitionByKey(String key) {
+        return definitions.stream().filter(definition -> qualifiedName(definition).equals(key)).findFirst().orElse(null);
+    }
+
+    private String qualifiedName(VariableDefinition definition) {
+        return definition.qualifiedName(findFolder(definition.getFolderId()));
+    }
+
+    private int countVariablesInFolder(String folderId) {
+        return (int) definitions.stream().filter(definition -> Objects.equals(folderId, definition.getFolderId())).count();
+    }
+
+    private void synchronizeDefinitionsFromRuntimeMaps() {
+        for (VariableDefinition definition : definitions) {
+            String key = qualifiedName(definition);
+            definition.setValue(values.getOrDefault(key, definition.getValue()));
+            definition.setRule(rules.getOrDefault(key, definition.getRule()));
+        }
+    }
+
+    private void rebuildRuntimeMapsFromDefinitions() {
+        variableNames.clear();
+        values.clear();
+        rules.clear();
+        definitions.sort(Comparator.comparing((VariableDefinition definition) ->
+                definition.getFolderId() == null ? "" : definition.getFolderId())
+                .thenComparingInt(VariableDefinition::getPosition));
+        for (VariableDefinition definition : definitions) {
+            String key = qualifiedName(definition);
+            if (values.containsKey(key)) {
+                api.logging().logToError("Duplicate variable key ignored while loading: " + key);
+                continue;
+            }
+            variableNames.add(key);
+            values.put(key, definition.getValue());
+            rules.put(key, definition.getRule());
+        }
+    }
+
+    private boolean validNewName(String name, String type) {
+        if (name == null || name.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(mainPanel, type + " name cannot be empty.", "Invalid Name", JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+        if (!VariableNames.isValidComponent(name)) {
+            JOptionPane.showMessageDialog(mainPanel, type + " names cannot contain '.'.", "Invalid Name", JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+        return true;
+    }
+
+    private String selectedFolderId() {
+        int row = variablesTable == null ? -1 : variablesTable.getSelectedRow();
+        if (row < 0) return null;
+        TableRow selected = tableModel.rowAt(row);
+        if (selected == null) return null;
+        if (selected.folder != null) return selected.folder.getId();
+        return selected.variable == null ? null : selected.variable.getFolderId();
+    }
+
+    private void createFolderDialog() {
+        String name = JOptionPane.showInputDialog(mainPanel, "Folder name:", "New Folder", JOptionPane.PLAIN_MESSAGE);
+        if (name == null) return;
+        name = name.trim();
+        if (!validNewName(name, "Folder")) return;
         synchronized (lock) {
-            if (sourceRow < 0 || sourceRow >= variableNames.size()
-                    || dropRow < 0 || dropRow > variableNames.size()) {
+            if (findFolderByName(name) != null) {
+                JOptionPane.showMessageDialog(mainPanel, "A folder with this name already exists.", "Duplicate Folder", JOptionPane.ERROR_MESSAGE);
                 return;
             }
-
-            targetRow = dropRow;
-            if (sourceRow < targetRow) {
-                targetRow--;
-            }
-            if (sourceRow == targetRow) {
-                return;
-            }
-
-            String variableName = variableNames.remove(sourceRow);
-            variableNames.add(targetRow, variableName);
+            folders.add(new VariableFolder(name, folders.size()));
             savePreferences();
         }
-
         tableModel.fireTableDataChanged();
-        variablesTable.setRowSelectionInterval(targetRow, targetRow);
-        variablesTable.scrollRectToVisible(variablesTable.getCellRect(targetRow, 0, true));
+    }
+
+    private void createVariableDialog(String folderId) {
+        String name = JOptionPane.showInputDialog(mainPanel, "Variable name:", "New Variable", JOptionPane.PLAIN_MESSAGE);
+        if (name == null) return;
+        name = name.trim();
+        if (!validNewName(name, "Variable")) return;
+        VariableFolder folder = findFolder(folderId);
+        String key = folder == null ? name : folder.getName() + "." + name;
+        synchronized (lock) {
+            if (values.containsKey(key)) {
+                JOptionPane.showMessageDialog(mainPanel, "Variable '" + key + "' already exists.", "Duplicate Variable", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            VariableDefinition definition = new VariableDefinition(name, folderId, "", new VariableExtractionRule(),
+                    countVariablesInFolder(folderId));
+            definitions.add(definition);
+            rebuildRuntimeMapsFromDefinitions();
+            savePreferences();
+        }
+        tableModel.fireTableDataChanged();
+        selectVariable(key);
+    }
+
+    private void selectVariable(String key) {
+        int row = tableModel.findVariableRow(key);
+        if (row >= 0) {
+            variablesTable.setRowSelectionInterval(row, row);
+            variablesTable.scrollRectToVisible(variablesTable.getCellRect(row, 0, true));
+        }
+    }
+
+    private void toggleFolderAt(int row) {
+        TableRow tableRow = tableModel.rowAt(row);
+        if (tableRow == null || !tableRow.folderRow) return;
+        if (tableRow.ungrouped) {
+            ungroupedExpanded = !ungroupedExpanded;
+            api.persistence().preferences().setString("dynamic_variables_ungrouped_expanded", String.valueOf(ungroupedExpanded));
+        } else if (tableRow.folder != null) {
+            tableRow.folder.setExpanded(!tableRow.folder.isExpanded());
+            savePreferences();
+        }
+        tableModel.fireTableDataChanged();
+    }
+
+    private JPopupMenu createVariablesPopup(int row) {
+        TableRow tableRow = tableModel.rowAt(row);
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem rename = new JMenuItem("Rename");
+        rename.setEnabled(tableRow != null && !tableRow.ungrouped);
+        rename.addActionListener(e -> renameNode(tableRow));
+        JMenuItem copy = new JMenuItem("Copy Placeholder");
+        copy.setEnabled(tableRow != null && tableRow.variable != null);
+        copy.addActionListener(e -> Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
+                new StringSelection("{{" + qualifiedName(tableRow.variable) + "}}"), null));
+        JMenuItem move = new JMenuItem("Move to...");
+        move.setEnabled(tableRow != null && tableRow.variable != null);
+        move.addActionListener(e -> showMoveDialog(tableRow.variable));
+        JMenuItem add = new JMenuItem("New Variable");
+        add.addActionListener(e -> createVariableDialog(tableRow == null ? null
+                : tableRow.folder != null ? tableRow.folder.getId()
+                : tableRow.variable != null ? tableRow.variable.getFolderId() : null));
+        JMenuItem delete = new JMenuItem("Delete");
+        delete.setEnabled(tableRow != null && !tableRow.ungrouped);
+        delete.addActionListener(e -> deleteNode(tableRow));
+        menu.add(rename);
+        menu.add(copy);
+        menu.add(move);
+        menu.addSeparator();
+        menu.add(add);
+        menu.add(delete);
+        return menu;
+    }
+
+    private void renameNode(TableRow row) {
+        if (row == null) return;
+        String oldName = row.folder != null ? row.folder.getName() : row.variable.getName();
+        String type = row.folder != null ? "Folder" : "Variable";
+        String name = JOptionPane.showInputDialog(mainPanel, type + " name:", oldName);
+        if (name == null || oldName.equals(name.trim())) return;
+        name = name.trim();
+        if (!validNewName(name, type)) return;
+        if (row.folder != null) renameFolder(row.folder, name);
+        else renameVariable(row.variable, name);
+    }
+
+    private void renameVariable(VariableDefinition definition, String newName) {
+        String oldKey = qualifiedName(definition);
+        VariableFolder folder = findFolder(definition.getFolderId());
+        String newKey = folder == null ? newName : folder.getName() + "." + newName;
+        if (values.containsKey(newKey)) {
+            JOptionPane.showMessageDialog(mainPanel, "Variable '" + newKey + "' already exists.", "Duplicate Variable", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        if (JOptionPane.showConfirmDialog(mainPanel, "Placeholder will change:\n{{" + oldKey + "}} -> {{" + newKey + "}}",
+                "Rename Variable", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+        definition.setName(newName);
+        rebuildRuntimeMapsFromDefinitions();
+        savePreferences();
+        tableModel.fireTableDataChanged();
+        selectVariable(newKey);
+    }
+
+    private void renameFolder(VariableFolder folder, String newName) {
+        if (findFolderByName(newName) != null) {
+            JOptionPane.showMessageDialog(mainPanel, "A folder with this name already exists.", "Duplicate Folder", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        List<VariableDefinition> children = definitions.stream().filter(v -> folder.getId().equals(v.getFolderId())).toList();
+        for (VariableDefinition child : children) {
+            String newKey = newName + "." + child.getName();
+            if (values.containsKey(newKey) && findDefinitionByKey(newKey) != child) {
+                JOptionPane.showMessageDialog(mainPanel, "Renaming would conflict with '" + newKey + "'.", "Rename Folder", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+        }
+        StringBuilder changes = new StringBuilder("The following placeholders will change:\n");
+        for (VariableDefinition child : children) changes.append("{{").append(qualifiedName(child)).append("}} -> {{")
+                .append(newName).append('.').append(child.getName()).append("}}\n");
+        if (!children.isEmpty() && JOptionPane.showConfirmDialog(mainPanel, changes.toString(), "Rename Folder",
+                JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+        folder.setName(newName);
+        rebuildRuntimeMapsFromDefinitions();
+        savePreferences();
+        tableModel.fireTableDataChanged();
+    }
+
+    private void showMoveDialog(VariableDefinition definition) {
+        List<String> choices = new ArrayList<>();
+        choices.add("Ungrouped");
+        folders.stream().sorted(Comparator.comparingInt(VariableFolder::getPosition)).forEach(f -> choices.add(f.getName()));
+        Object selected = JOptionPane.showInputDialog(mainPanel, "Move variable to:", "Move Variable",
+                JOptionPane.PLAIN_MESSAGE, null, choices.toArray(),
+                findFolder(definition.getFolderId()) == null ? "Ungrouped" : findFolder(definition.getFolderId()).getName());
+        if (selected == null) return;
+        VariableFolder target = "Ungrouped".equals(selected) ? null : findFolderByName(selected.toString());
+        moveDefinition(definition, target == null ? null : target.getId(), countVariablesInFolder(target == null ? null : target.getId()), true);
+    }
+
+    private boolean moveDefinition(VariableDefinition definition, String targetFolderId, int targetPosition, boolean confirm) {
+        String oldKey = qualifiedName(definition);
+        VariableFolder target = findFolder(targetFolderId);
+        String newKey = target == null ? definition.getName() : target.getName() + "." + definition.getName();
+        if (!oldKey.equals(newKey) && values.containsKey(newKey)) {
+            JOptionPane.showMessageDialog(mainPanel, "Variable '" + newKey + "' already exists.", "Move Variable", JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+        if (confirm && !oldKey.equals(newKey) && JOptionPane.showConfirmDialog(mainPanel,
+                "Placeholder will change:\n{{" + oldKey + "}} -> {{" + newKey + "}}", "Move Variable",
+                JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return false;
+        String oldFolderId = definition.getFolderId();
+        List<VariableDefinition> oldGroup = new ArrayList<>(definitions.stream()
+                .filter(v -> Objects.equals(oldFolderId, v.getFolderId()) && v != definition)
+                .sorted(Comparator.comparingInt(VariableDefinition::getPosition)).toList());
+        for (int i = 0; i < oldGroup.size(); i++) oldGroup.get(i).setPosition(i);
+        definition.setFolderId(targetFolderId);
+        List<VariableDefinition> targetGroup = new ArrayList<>(definitions.stream()
+                .filter(v -> Objects.equals(targetFolderId, v.getFolderId()) && v != definition)
+                .sorted(Comparator.comparingInt(VariableDefinition::getPosition)).toList());
+        targetGroup.add(Math.max(0, Math.min(targetPosition, targetGroup.size())), definition);
+        for (int i = 0; i < targetGroup.size(); i++) targetGroup.get(i).setPosition(i);
+        rebuildRuntimeMapsFromDefinitions();
+        savePreferences();
+        tableModel.fireTableDataChanged();
+        selectVariable(newKey);
+        return true;
+    }
+
+    private void normalizePositions(String folderId) {
+        List<VariableDefinition> group = definitions.stream().filter(v -> Objects.equals(folderId, v.getFolderId()))
+                .sorted(Comparator.comparingInt(VariableDefinition::getPosition)).toList();
+        for (int i = 0; i < group.size(); i++) group.get(i).setPosition(i);
+    }
+
+    private void deleteSelectedNode() {
+        int row = variablesTable.getSelectedRow();
+        if (row >= 0) deleteNode(tableModel.rowAt(row));
+    }
+
+    private void deleteNode(TableRow row) {
+        if (row == null || row.ungrouped) return;
+        if (row.variable != null) {
+            String key = qualifiedName(row.variable);
+            if (JOptionPane.showConfirmDialog(mainPanel, "Delete variable '" + key + "'?", "Delete Variable",
+                    JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            definitions.remove(row.variable);
+        } else if (row.folder != null) {
+            List<VariableDefinition> children = definitions.stream().filter(v -> row.folder.getId().equals(v.getFolderId())).toList();
+            if (!children.isEmpty()) {
+                Object[] options = {"Move variables to Ungrouped", "Delete folder and variables", "Cancel"};
+                int choice = JOptionPane.showOptionDialog(mainPanel, "Folder contains " + children.size() + " variables.",
+                        "Delete Folder", JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[2]);
+                if (choice == 0) {
+                    for (VariableDefinition child : children) {
+                        if (values.containsKey(child.getName()) && findDefinitionByKey(child.getName()) != child) {
+                            JOptionPane.showMessageDialog(mainPanel, "Cannot move: '" + child.getName() + "' already exists in Ungrouped.",
+                                    "Delete Folder", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                    }
+                    int rootPosition = countVariablesInFolder(null);
+                    for (VariableDefinition child : children) {
+                        child.setFolderId(null);
+                        child.setPosition(rootPosition++);
+                    }
+                } else if (choice == 1) definitions.removeAll(children);
+                else return;
+            }
+            folders.remove(row.folder);
+            folders.sort(Comparator.comparingInt(VariableFolder::getPosition));
+            for (int i = 0; i < folders.size(); i++) folders.get(i).setPosition(i);
+        }
+        rebuildRuntimeMapsFromDefinitions();
+        savePreferences();
+        tableModel.fireTableDataChanged();
+        updateDetailsPanel(-1);
     }
 
     private class VariableRowTransferHandler extends TransferHandler {
+        private static final long serialVersionUID = 1L;
         private final DataFlavor rowFlavor = new DataFlavor(Integer.class, "Variable row");
 
         @Override
@@ -1413,8 +1814,34 @@ public class VariableManager {
             try {
                 int sourceRow = (Integer) support.getTransferable().getTransferData(rowFlavor);
                 JTable.DropLocation dropLocation = (JTable.DropLocation) support.getDropLocation();
-                moveVariable(sourceRow, dropLocation.getRow());
-                return true;
+                TableRow source = tableModel.rowAt(sourceRow);
+                int requestedDropRow = dropLocation.getRow();
+                int dropRow = Math.min(requestedDropRow, tableModel.getRowCount() - 1);
+                TableRow target = tableModel.rowAt(dropRow);
+                if (source == null || target == null) return false;
+                if (source.variable != null) {
+                    String folderId = target.folder != null ? target.folder.getId()
+                            : target.ungrouped ? null : target.variable.getFolderId();
+                    int position = requestedDropRow >= tableModel.getRowCount() ? countVariablesInFolder(folderId)
+                            : target.variable == null ? countVariablesInFolder(folderId) : target.variable.getPosition();
+                    return moveDefinition(source.variable, folderId, position, true);
+                }
+                VariableFolder targetFolder = target.folder != null ? target.folder
+                        : target.variable == null ? null : findFolder(target.variable.getFolderId());
+                if (source.folder != null && targetFolder != null && source.folder != targetFolder) {
+                    int old = source.folder.getPosition();
+                    int next = targetFolder.getPosition();
+                    for (VariableFolder folder : folders) {
+                        if (folder == source.folder) continue;
+                        if (old < next && folder.getPosition() > old && folder.getPosition() <= next) folder.setPosition(folder.getPosition() - 1);
+                        if (old > next && folder.getPosition() >= next && folder.getPosition() < old) folder.setPosition(folder.getPosition() + 1);
+                    }
+                    source.folder.setPosition(next);
+                    savePreferences();
+                    tableModel.fireTableDataChanged();
+                    return true;
+                }
+                return false;
             } catch (UnsupportedFlavorException | IOException e) {
                 api.logging().logToError("Failed to reorder variable: " + e.getMessage());
                 return false;
@@ -1450,14 +1877,56 @@ public class VariableManager {
         }
     }
 
-    // --- TABLE MODEL CLASS ---
+    private static final class TableRow {
+        final VariableFolder folder;
+        final VariableDefinition variable;
+        final boolean folderRow;
+        final boolean ungrouped;
+
+        private TableRow(VariableFolder folder, VariableDefinition variable, boolean folderRow, boolean ungrouped) {
+            this.folder = folder;
+            this.variable = variable;
+            this.folderRow = folderRow;
+            this.ungrouped = ungrouped;
+        }
+    }
+
+    private boolean ungroupedExpanded = true;
+
     private class VariablesTableModel extends AbstractTableModel {
+        private static final long serialVersionUID = 1L;
         private final String[] columns = {"Variable Name", "Current Value", "Auto Extract?"};
+
+        private List<TableRow> rows() {
+            List<TableRow> result = new ArrayList<>();
+            addGroupRows(result, null, null, true, ungroupedExpanded);
+            folders.stream().sorted(Comparator.comparingInt(VariableFolder::getPosition))
+                    .forEach(folder -> addGroupRows(result, folder.getId(), folder, false, folder.isExpanded()));
+            return result;
+        }
+
+        private void addGroupRows(List<TableRow> result, String folderId, VariableFolder folder,
+                                  boolean ungrouped, boolean expanded) {
+            List<VariableDefinition> children = definitions.stream()
+                    .filter(v -> Objects.equals(folderId, v.getFolderId()))
+                    .sorted(Comparator.comparingInt(VariableDefinition::getPosition)).toList();
+            String groupName = ungrouped ? "Ungrouped" : folder.getName();
+            boolean groupMatches = variableSearch.isEmpty() || groupName.toLowerCase(Locale.ROOT).contains(variableSearch);
+            List<VariableDefinition> matches = children.stream().filter(v -> variableSearch.isEmpty()
+                    || v.getName().toLowerCase(Locale.ROOT).contains(variableSearch)
+                    || qualifiedName(v).toLowerCase(Locale.ROOT).contains(variableSearch)).toList();
+            if (!groupMatches && matches.isEmpty()) return;
+            result.add(new TableRow(folder, null, true, ungrouped));
+            if (expanded || !variableSearch.isEmpty()) {
+                for (VariableDefinition child : groupMatches && !variableSearch.isEmpty() ? children : matches)
+                    result.add(new TableRow(folder, child, false, ungrouped));
+            }
+        }
 
         @Override
         public int getRowCount() {
             synchronized (lock) {
-                return variableNames.size();
+                return rows().size();
             }
         }
 
@@ -1474,11 +1943,19 @@ public class VariableManager {
         @Override
         public Object getValueAt(int rowIndex, int columnIndex) {
             synchronized (lock) {
-                if (rowIndex >= variableNames.size()) return null;
-                String name = variableNames.get(rowIndex);
+                TableRow row = rowAt(rowIndex);
+                if (row == null) return null;
+                if (row.folderRow) {
+                    if (columnIndex != 0) return "";
+                    boolean expanded = row.ungrouped ? ungroupedExpanded : row.folder.isExpanded();
+                    String name = row.ungrouped ? "Ungrouped" : row.folder.getName();
+                    return (expanded ? "▾ " : "▸ ") + "📁 " + name + " (" +
+                            countVariablesInFolder(row.ungrouped ? null : row.folder.getId()) + ")";
+                }
+                String name = qualifiedName(row.variable);
                 switch (columnIndex) {
                     case 0:
-                        return name;
+                        return row.variable.getName();
                     case 1:
                         String val = values.getOrDefault(name, "");
                         return val.length() > 50 ? val.substring(0, 47) + "..." : val;
@@ -1492,30 +1969,64 @@ public class VariableManager {
 
         @Override
         public boolean isCellEditable(int rowIndex, int columnIndex) {
-            return columnIndex == 0;
+            TableRow row = rowAt(rowIndex);
+            return columnIndex == 0 && row != null && row.variable != null;
         }
 
         @Override
-        public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
-            if (columnIndex == 0 && aValue != null) {
-                String newName = aValue.toString().trim();
-                if (newName.isEmpty()) return;
-                
-                synchronized (lock) {
-                    String oldName = variableNames.get(rowIndex);
-                    if (oldName.equals(newName)) return;
-                    if (variableNames.contains(newName)) {
-                        JOptionPane.showMessageDialog(mainPanel, "Variable name already exists!", "Error", JOptionPane.ERROR_MESSAGE);
-                        return;
-                    }
-                    
-                    variableNames.set(rowIndex, newName);
-                    values.put(newName, values.remove(oldName));
-                    rules.put(newName, rules.remove(oldName));
-                    savePreferences();
-                }
+        public void setValueAt(Object value, int rowIndex, int columnIndex) {
+            if (columnIndex != 0 || value == null) return;
+            TableRow row = rowAt(rowIndex);
+            if (row == null || row.variable == null) return;
+
+            String newName = value.toString().trim();
+            if (newName.equals(row.variable.getName())) return;
+            if (!validNewName(newName, "Variable")) {
                 fireTableRowsUpdated(rowIndex, rowIndex);
+                return;
             }
+            renameVariable(row.variable, newName);
+        }
+
+        TableRow rowAt(int row) {
+            List<TableRow> rows = rows();
+            return row < 0 || row >= rows.size() ? null : rows.get(row);
+        }
+
+        boolean isFolderRow(int row) {
+            TableRow tableRow = rowAt(row);
+            return tableRow != null && tableRow.folderRow;
+        }
+
+        String variableKeyAt(int row) {
+            TableRow tableRow = rowAt(row);
+            return tableRow == null || tableRow.variable == null ? null : qualifiedName(tableRow.variable);
+        }
+
+        int findVariableRow(String key) {
+            List<TableRow> rows = rows();
+            for (int i = 0; i < rows.size(); i++) {
+                if (rows.get(i).variable != null && qualifiedName(rows.get(i).variable).equals(key)) return i;
+            }
+            return -1;
+        }
+    }
+
+    private class HierarchyCellRenderer extends DefaultTableCellRenderer {
+        private static final long serialVersionUID = 1L;
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean selected,
+                                                       boolean focused, int row, int column) {
+            JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, selected, focused, row, column);
+            TableRow tableRow = tableModel.rowAt(row);
+            label.setFont(label.getFont().deriveFont(tableRow != null && tableRow.folderRow ? Font.BOLD : Font.PLAIN));
+            if (tableRow != null && tableRow.variable != null) {
+                label.setText("    " + value);
+                label.setToolTipText("{{" + qualifiedName(tableRow.variable) + "}}");
+            } else {
+                label.setToolTipText(null);
+            }
+            return label;
         }
     }
 

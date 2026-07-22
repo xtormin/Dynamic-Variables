@@ -32,6 +32,7 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 | 8 | **Repeater Integration** | Send your saved login/refresh requests directly to the Repeater tab for manual tweaking and testing. |
 | 9 | **Request Editor Sub-Tab** | Adds a custom request editor tab next to Raw/Hex to display a sidebar listing all defined variables. Double-click any variable to insert its `{{placeholder}}` at the cursor position. |
 | 10 | **Zero Dependencies** | Built using the native Montoya API. No external libraries, 100% self-contained JAR. |
+| 11 | **Variable Folders** | Organize variables by user, session, or context. Folder variables use qualified placeholders such as `{{alice.token}}`, allowing `alice.token` and `bob.token` to coexist safely. |
 
 ---
 
@@ -51,16 +52,20 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 
 ### 1. Define a Variable Manually
 1. Open the **Variables** tab in Burp Suite.
-2. Click **Add Variable** and enter a name (e.g., `api_key`).
-3. Select `api_key` in the table, and paste the value in the **Variable Value Editor** on the right.
-4. In Repeater, reference it as `{{api_key}}` (e.g., `Authorization: Bearer {{api_key}}`). It will be substituted when the request is sent.
+2. Optionally click **New Folder** and create a folder such as `alice`.
+3. Select the folder and click **New Variable**, or create the variable in **Ungrouped**.
+4. Enter a name (e.g., `api_key` or `token`). Folder and variable names cannot contain `.`.
+5. Select the variable in the table, and paste the value in the **Variable Value Editor** on the right.
+6. In Repeater, reference an ungrouped variable as `{{api_key}}` or a grouped variable as `{{alice.token}}`. It will be substituted when the request is sent.
+
+Folders can be expanded or collapsed. Drag variables to reorder them or move them between folders; because moving changes the placeholder, the extension shows the old and new placeholders before applying the move. Right-click a variable to rename it, copy its placeholder, move it, or delete it.
 
 ### 2. Auto-Extract Variables from Responses
 1. Send a request that returns a token in the response (e.g., login request).
 2. Go to the **Response** viewer tab.
 3. Highlight the token value inside the response body or headers.
 4. Right-click the highlighted text and click **Assign to Variable...**.
-5. Select or type a variable name. The **Regex Pattern** is automatically generated for you.
+5. Choose **Ungrouped** or a folder, then select or type a variable name. The **Regex Pattern** is automatically generated for you.
 6. Make sure **"Save this request to refresh token in the future"** is checked.
 7. Click **Save Rule**.
 

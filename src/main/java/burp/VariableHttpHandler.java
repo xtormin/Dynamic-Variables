@@ -369,16 +369,6 @@ public class VariableHttpHandler implements HttpHandler {
     }
 
     private String replacePlaceholders(String text, Map<String, String> variables) {
-        if (text == null || text.isEmpty()) {
-            return text;
-        }
-        String result = text;
-        for (Map.Entry<String, String> entry : variables.entrySet()) {
-            String placeholder = "{{" + entry.getKey() + "}}";
-            if (result.contains(placeholder)) {
-                result = result.replace(placeholder, entry.getValue());
-            }
-        }
-        return result;
+        return VariableNames.replacePlaceholders(text, variables);
     }
 }

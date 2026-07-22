@@ -13,11 +13,18 @@ import burp.api.montoya.ui.editor.extension.ExtensionProvidedHttpRequestEditor;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor {
     private final MontoyaApi api;
@@ -30,6 +37,9 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
     private DefaultListModel<String> listModel;
     private JSplitPane splitPane;
     private HttpRequestResponse currentReqResp;
+    private final Map<String, String> displayToVariable = new HashMap<>();
+    private final Set<String> collapsedFolders = new HashSet<>();
+    private String filter = "";
 
     public VariableRequestEditor(MontoyaApi api, VariableManager variableManager, EditorCreationContext creationContext) {
         this.api = api;
@@ -56,9 +66,23 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
         sidebarPanel.setPreferredSize(new Dimension(150, 200));
 
         // Header label
-        JLabel headerLabel = new JLabel("Double-click to insert:");
+        JLabel headerLabel = new JLabel("Double-click a variable to insert:");
         headerLabel.setFont(new Font(headerLabel.getFont().getName(), Font.BOLD, 11));
-        sidebarPanel.add(headerLabel, BorderLayout.NORTH);
+        JTextField searchField = new JTextField();
+        searchField.putClientProperty("JTextField.placeholderText", "Search variables");
+        searchField.getDocument().addDocumentListener(new DocumentListener() {
+            private void update() {
+                filter = searchField.getText().trim().toLowerCase(java.util.Locale.ROOT);
+                refreshVariableList();
+            }
+            @Override public void insertUpdate(DocumentEvent e) { update(); }
+            @Override public void removeUpdate(DocumentEvent e) { update(); }
+            @Override public void changedUpdate(DocumentEvent e) { update(); }
+        });
+        JPanel sidebarHeader = new JPanel(new BorderLayout(3, 3));
+        sidebarHeader.add(headerLabel, BorderLayout.NORTH);
+        sidebarHeader.add(searchField, BorderLayout.SOUTH);
+        sidebarPanel.add(sidebarHeader, BorderLayout.NORTH);
 
         // Variables List
         listModel = new DefaultListModel<>();
@@ -72,7 +96,12 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
             public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
                 Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value != null) {
-                    String varName = value.toString();
+                    String varName = displayToVariable.get(value.toString());
+                    if (varName == null) {
+                        setFont(getFont().deriveFont(Font.BOLD));
+                        setToolTipText("Double-click to expand or collapse");
+                        return c;
+                    }
                     String varValue = variableManager.getVariables().get(varName);
                     if (varValue != null) {
                         // Truncate long values for tooltip
@@ -96,8 +125,10 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2 && !varList.isSelectionEmpty()) {
-                    String selectedVar = varList.getSelectedValue();
-                    insertPlaceholder(selectedVar);
+                    String display = varList.getSelectedValue();
+                    String selectedVar = displayToVariable.get(display);
+                    if (selectedVar != null) insertPlaceholder(selectedVar);
+                    else toggleFolder(display);
                 }
             }
         });
@@ -110,7 +141,8 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
         insertButton.setFont(new Font(insertButton.getFont().getName(), Font.PLAIN, 10));
         insertButton.addActionListener(e -> {
             if (!varList.isSelectionEmpty()) {
-                insertPlaceholder(varList.getSelectedValue());
+                String selected = displayToVariable.get(varList.getSelectedValue());
+                if (selected != null) insertPlaceholder(selected);
             }
         });
 
@@ -136,10 +168,38 @@ public class VariableRequestEditor implements ExtensionProvidedHttpRequestEditor
 
     private void refreshVariableList() {
         listModel.clear();
+        displayToVariable.clear();
         List<String> names = variableManager.getVariableNames();
-        for (String name : names) {
-            listModel.addElement(name);
+        List<String> folders = new ArrayList<>();
+        folders.add("");
+        folders.addAll(variableManager.getFolderNames());
+        for (String folder : folders) {
+            List<String> matches = names.stream().filter(name -> variableManager.getFolderNameForVariable(name).equals(folder))
+                    .filter(name -> filter.isEmpty() || name.toLowerCase(java.util.Locale.ROOT).contains(filter)
+                            || folder.toLowerCase(java.util.Locale.ROOT).contains(filter)).toList();
+            if (matches.isEmpty() && !filter.isEmpty()) continue;
+            String label = (collapsedFolders.contains(folder) && filter.isEmpty() ? "▸ " : "▾ ") + "📁 "
+                    + (folder.isEmpty() ? "Ungrouped" : folder) + " (" + matches.size() + ")";
+            listModel.addElement(label);
+            if (!collapsedFolders.contains(folder) || !filter.isEmpty()) {
+                for (String name : matches) {
+                    String display = "    " + name;
+                    listModel.addElement(display);
+                    displayToVariable.put(display, name);
+                }
+            }
         }
+    }
+
+    private void toggleFolder(String display) {
+        if (display == null) return;
+        int marker = display.indexOf("📁 ");
+        int count = display.lastIndexOf(" (");
+        if (marker < 0 || count < marker) return;
+        String folder = display.substring(marker + 3, count);
+        if ("Ungrouped".equals(folder)) folder = "";
+        if (!collapsedFolders.add(folder)) collapsedFolders.remove(folder);
+        refreshVariableList();
     }
 
     private boolean isLocallyModified = false;
