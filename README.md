@@ -34,6 +34,7 @@ Dynamic Variables is a Burp Suite extension that brings template variables and a
 | 10 | **Zero Dependencies** | Built using the native Montoya API. No external libraries, 100% self-contained JAR. |
 | 11 | **Variable Folders** | Organize variables by user, session, or context. Folder variables use qualified placeholders such as `{{alice.token}}`, allowing `alice.token` and `bob.token` to coexist safely. |
 | 12 | **Request Folder Switching** | Replace every matching placeholder from one folder with its counterpart in another folder directly from a request's context menu. |
+| 13 | **Materialize Repeater Variables** | Preview and permanently replace all known placeholders in an editable Repeater request with their current text values for direct testing without variables. |
 
 ---
 
@@ -89,7 +90,15 @@ Folders can be expanded or collapsed. Drag variables to reorder them or move the
 
 Only variables with the same local name in the target folder are changed. For example, if `user2` contains both `jwe` and `accountId`, the request becomes `{{user2.jwe}}` and `{{user2.accountId}}`. A source placeholder without a counterpart in `user2` remains unchanged and is listed in the preview.
 
-### 5. Transparent 401/403 Session Recovery
+### 5. Materializing Variables in a Repeater Request
+1. Open an editable Repeater request containing placeholders such as `{{token}}` or `{{alice.accountId}}`.
+2. Right-click anywhere in the request and choose **Sustituir variables por sus valores…**.
+3. Review the current values that will be inserted and any unknown placeholders that will remain unchanged.
+4. Click **Sustituir valores** to update the request's path, header values, and body.
+
+This modifies the template currently open in Repeater. Once a placeholder has been replaced with text, later updates to that variable no longer affect this request. Duplicate the Repeater tab first or use Repeater's undo support if you may need the original template again.
+
+### 6. Transparent 401/403 Session Recovery
 1. Use a placeholder variable (e.g. `{{jwt}}`) in any Repeater, Intruder, or Scanner request.
 2. If the session expires and the server returns an HTTP 401 or 403 status:
    - The extension intercepts the response before it is displayed.
@@ -97,7 +106,7 @@ Only variables with the same local name in the target folder are changed. For ex
    - It re-sends the request to the target server and displays the successful response transparently.
 3. You do not need to manually copy-paste or click anything; the request heals itself.
 
-### 6. Interactive Rule Updating
+### 7. Interactive Rule Updating
 1. If the API response structure changes, select your variable in the table.
 2. Click **Update Rule from Response...**.
 3. The plugin fetches a fresh response from the server and displays it in a raw viewer.

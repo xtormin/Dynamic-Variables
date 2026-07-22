@@ -36,6 +36,60 @@ class VariableNamesTest {
     }
 
     @Test
+    void materializesGlobalAndFolderVariablesAndReportsThemOnce() {
+        String request = "/accounts/{{alice.id}}?token={{token}}\n"
+                + "Authorization: Bearer {{token}}\n"
+                + "{\"owner\":\"{{alice.id}}\"}";
+
+        VariableNames.MaterializationResult result = VariableNames.materializePlaceholders(request, Map.of(
+                "alice.id", "42",
+                "token", "secret"));
+
+        assertEquals("/accounts/42?token=secret\nAuthorization: Bearer secret\n{\"owner\":\"42\"}", result.text());
+        assertEquals(java.util.List.of("alice.id", "token"), result.replacedVariables());
+        assertEquals(java.util.List.of(), result.unresolvedVariables());
+        assertTrue(result.changed());
+        assertTrue(result.hasPlaceholders());
+    }
+
+    @Test
+    void materializationIsExactAndPreservesSpecialCharactersAndEmptyValues() {
+        String request = "a={{id}}&long={{accountId}}&special={{special}}&empty={{empty}}";
+
+        VariableNames.MaterializationResult result = VariableNames.materializePlaceholders(request, Map.of(
+                "id", "7",
+                "accountId", "123",
+                "special", "$1\\path\n{{literal}}",
+                "empty", ""));
+
+        assertEquals("a=7&long=123&special=$1\\path\n{{literal}}&empty=", result.text());
+        assertEquals(java.util.List.of("id", "accountId", "special", "empty"), result.replacedVariables());
+    }
+
+    @Test
+    void preservesAndReportsUnknownPlaceholders() {
+        VariableNames.MaterializationResult result = VariableNames.materializePlaceholders(
+                "known={{known}}&missing={{missing}}&again={{missing}}", Map.of("known", "value"));
+
+        assertEquals("known=value&missing={{missing}}&again={{missing}}", result.text());
+        assertEquals(java.util.List.of("known"), result.replacedVariables());
+        assertEquals(java.util.List.of("missing"), result.unresolvedVariables());
+        assertTrue(result.changed());
+    }
+
+    @Test
+    void distinguishesPlainTextFromRequestsWithOnlyUnknownPlaceholders() {
+        VariableNames.MaterializationResult plain = VariableNames.materializePlaceholders("ordinary text", Map.of());
+        VariableNames.MaterializationResult unknown = VariableNames.materializePlaceholders("{{unknown}}", Map.of());
+
+        assertFalse(plain.changed());
+        assertFalse(plain.hasPlaceholders());
+        assertFalse(unknown.changed());
+        assertTrue(unknown.hasPlaceholders());
+        assertEquals(java.util.List.of("unknown"), unknown.unresolvedVariables());
+    }
+
+    @Test
     void detectsQualifiedPlaceholderFoldersInFirstSeenOrder() {
         assertEquals(java.util.List.of("user1", "other"),
                 VariableNames.detectPlaceholderFolders("{{user1.jwe}} {{global}} {{other.id}} {{user1.accountId}}"));

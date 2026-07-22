@@ -2,11 +2,13 @@ package burp;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.core.Range;
+import burp.api.montoya.core.ToolType;
 import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.ui.contextmenu.ContextMenuEvent;
 import burp.api.montoya.ui.contextmenu.ContextMenuItemsProvider;
+import burp.api.montoya.ui.contextmenu.InvocationType;
 import burp.api.montoya.ui.contextmenu.MessageEditorHttpRequestResponse;
 
 import javax.swing.*;
@@ -18,6 +20,8 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 public class VariableContextMenuProvider implements ContextMenuItemsProvider {
@@ -45,6 +49,14 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
         }
 
         if (reqResp.selectionContext() == MessageEditorHttpRequestResponse.SelectionContext.REQUEST) {
+            if (isMaterializationContext(event.toolType(), event.invocationType(), reqResp.selectionContext())) {
+                JMenuItem materializeItem = new JMenuItem("Sustituir variables por sus valores\u2026");
+                materializeItem.setEnabled(hasAnyPlaceholder(reqResp.requestResponse().request()));
+                materializeItem.setToolTipText("Convierte los placeholders de esta petición en valores de texto.");
+                materializeItem.addActionListener(e -> showMaterializationDialog(reqResp));
+                items.add(materializeItem);
+            }
+
             JMenuItem switchFolderItem = new JMenuItem("Cambiar carpeta de variables\u2026");
             switchFolderItem.setEnabled(hasUsefulFolderRemap(reqResp.requestResponse().request()));
             switchFolderItem.setToolTipText("Sustituye los placeholders coincidentes de una carpeta por los de otra.");
@@ -54,6 +66,136 @@ public class VariableContextMenuProvider implements ContextMenuItemsProvider {
 
         return items;
     }
+
+    static boolean isMaterializationContext(ToolType toolType, InvocationType invocationType,
+                                            MessageEditorHttpRequestResponse.SelectionContext selectionContext) {
+        return toolType == ToolType.REPEATER
+                && invocationType == InvocationType.MESSAGE_EDITOR_REQUEST
+                && selectionContext == MessageEditorHttpRequestResponse.SelectionContext.REQUEST;
+    }
+
+    private boolean hasAnyPlaceholder(HttpRequest request) {
+        return VariableNames.materializePlaceholders(
+                editableRequestText(request), variableManager.getVariables()).hasPlaceholders();
+    }
+
+    private void showMaterializationDialog(MessageEditorHttpRequestResponse editor) {
+        HttpRequest originalRequest = editor.requestResponse().request();
+        Map<String, String> variables = variableManager.getVariables();
+        MaterializedRequestResult result = materializeRequest(originalRequest, variables);
+
+        Frame suiteFrame = api.userInterface().swingUtils().suiteFrame();
+        JDialog dialog = new JDialog(suiteFrame, "Sustituir variables por sus valores",
+                Dialog.ModalityType.APPLICATION_MODAL);
+        dialog.setLayout(new BorderLayout(10, 10));
+        dialog.setSize(680, 500);
+        dialog.setLocationRelativeTo(suiteFrame);
+
+        JTextArea preview = new JTextArea(18, 56);
+        preview.setEditable(false);
+        preview.setLineWrap(true);
+        preview.setWrapStyleWord(true);
+        preview.setText(formatMaterializationPreview(result, variables));
+        preview.setCaretPosition(0);
+
+        JPanel previewPanel = new JPanel(new BorderLayout(5, 5));
+        previewPanel.setBorder(new EmptyBorder(10, 15, 5, 15));
+        previewPanel.add(new JLabel("Vista previa de los valores que se escribirán en la petición:"),
+                BorderLayout.NORTH);
+        previewPanel.add(new JScrollPane(preview), BorderLayout.CENTER);
+
+        JButton applyButton = new JButton("Sustituir valores");
+        applyButton.setEnabled(!result.replacedVariables().isEmpty());
+        applyButton.addActionListener(e -> {
+            editor.setRequest(result.request());
+            dialog.dispose();
+        });
+        JButton cancelButton = new JButton("Cancelar");
+        cancelButton.addActionListener(e -> dialog.dispose());
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 5));
+        buttons.add(applyButton);
+        buttons.add(cancelButton);
+
+        dialog.add(previewPanel, BorderLayout.CENTER);
+        dialog.add(buttons, BorderLayout.SOUTH);
+        dialog.setVisible(true);
+    }
+
+    private String formatMaterializationPreview(MaterializedRequestResult result, Map<String, String> variables) {
+        StringBuilder text = new StringBuilder();
+        if (result.replacedVariables().isEmpty()) {
+            text.append("No hay variables definidas que se puedan sustituir.\n");
+        } else {
+            text.append("Se sustituirán:\n");
+            for (String variableName : result.replacedVariables()) {
+                text.append("  {{").append(variableName).append("}}  \u2192  ");
+                String value = variables.get(variableName);
+                if (value.isEmpty()) {
+                    text.append("(valor vacío)");
+                } else {
+                    text.append(value.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\n      "));
+                }
+                text.append('\n');
+            }
+        }
+
+        if (!result.unresolvedVariables().isEmpty()) {
+            text.append("\nSe conservarán porque no están definidas:\n");
+            for (String variableName : result.unresolvedVariables()) {
+                text.append("  {{").append(variableName).append("}}\n");
+            }
+        }
+
+        text.append("\nEsta acción modifica la plantilla abierta en Repeater.");
+        return text.toString();
+    }
+
+    private MaterializedRequestResult materializeRequest(HttpRequest originalRequest, Map<String, String> variables) {
+        Set<String> replaced = new LinkedHashSet<>();
+        Set<String> unresolved = new LinkedHashSet<>();
+        HttpRequest rewritten = originalRequest;
+
+        VariableNames.MaterializationResult pathResult = VariableNames.materializePlaceholders(
+                originalRequest.path(), variables);
+        collectMaterialization(pathResult, replaced, unresolved);
+        if (!Objects.equals(originalRequest.path(), pathResult.text())) rewritten = rewritten.withPath(pathResult.text());
+
+        List<HttpHeader> newHeaders = new ArrayList<>();
+        boolean headersChanged = false;
+        for (HttpHeader header : originalRequest.headers()) {
+            VariableNames.MaterializationResult headerResult = VariableNames.materializePlaceholders(
+                    header.value(), variables);
+            collectMaterialization(headerResult, replaced, unresolved);
+            if (!Objects.equals(header.value(), headerResult.text())) {
+                newHeaders.add(HttpHeader.httpHeader(header.name(), headerResult.text()));
+                headersChanged = true;
+            } else {
+                newHeaders.add(header);
+            }
+        }
+        if (headersChanged) {
+            rewritten = rewritten.withRemovedHeaders(rewritten.headers()).withAddedHeaders(newHeaders);
+        }
+
+        VariableNames.MaterializationResult bodyResult = VariableNames.materializePlaceholders(
+                originalRequest.bodyToString(), variables);
+        collectMaterialization(bodyResult, replaced, unresolved);
+        if (!Objects.equals(originalRequest.bodyToString(), bodyResult.text())) {
+            rewritten = rewritten.withBody(bodyResult.text());
+        }
+
+        return new MaterializedRequestResult(rewritten, List.copyOf(replaced), List.copyOf(unresolved));
+    }
+
+    private void collectMaterialization(VariableNames.MaterializationResult result, Set<String> replaced,
+                                        Set<String> unresolved) {
+        replaced.addAll(result.replacedVariables());
+        unresolved.addAll(result.unresolvedVariables());
+    }
+
+    private record MaterializedRequestResult(HttpRequest request, List<String> replacedVariables,
+                                             List<String> unresolvedVariables) {}
 
     private boolean hasUsefulFolderRemap(HttpRequest request) {
         String requestText = editableRequestText(request);
